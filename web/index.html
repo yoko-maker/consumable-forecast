@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>消耗品ストック予測</title>
+  <link rel="manifest" href="./manifest.json">
+  <meta name="theme-color" content="#4f7fff">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --c-primary: #4f7fff;
+      --c-soon:    #f59e0b;
+      --c-overdue: #ef4444;
+      --c-ok:      #22c55e;
+      --c-bg:      #f8fafc;
+      --c-card:    #ffffff;
+      --c-border:  #e2e8f0;
+      --c-text:    #1e293b;
+      --c-muted:   #64748b;
+      --radius:    12px;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--c-bg);
+      color: var(--c-text);
+      min-height: 100dvh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    /* ── Header ── */
+    header {
+      background: var(--c-primary);
+      color: #fff;
+      padding: 14px 16px 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    header h1 { font-size: 1.1rem; font-weight: 700; }
+    #btn-add {
+      background: rgba(255,255,255,0.2);
+      border: none;
+      color: #fff;
+      border-radius: 8px;
+      padding: 6px 14px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+
+    /* ── Nav ── */
+    nav {
+      display: flex;
+      background: #fff;
+      border-bottom: 1px solid var(--c-border);
+    }
+    .nav-tab {
+      flex: 1;
+      padding: 10px 0;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--c-muted);
+      cursor: pointer;
+      border: none;
+      background: none;
+      border-bottom: 3px solid transparent;
+    }
+    .nav-tab.active {
+      color: var(--c-primary);
+      border-bottom-color: var(--c-primary);
+      font-weight: 600;
+    }
+
+    /* ── Main ── */
+    #main {
+      flex: 1;
+      padding: 12px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    /* ── Card ── */
+    .card {
+      background: var(--c-card);
+      border-radius: var(--radius);
+      border-left: 4px solid var(--c-ok);
+      padding: 12px 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06);
+    }
+    .card.status-soon    { border-left-color: var(--c-soon); }
+    .card.status-overdue { border-left-color: var(--c-overdue); }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+    }
+    .item-name { font-weight: 700; font-size: 1rem; }
+
+    .badge { font-size: 0.72rem; padding: 2px 8px; border-radius: 99px; white-space: nowrap; }
+    .badge-ok      { background: #dcfce7; color: #15803d; }
+    .badge-soon    { background: #fef3c7; color: #92400e; }
+    .badge-overdue { background: #fee2e2; color: #991b1b; }
+
+    .card-stock {
+      font-size: 1rem;
+      margin-bottom: 4px;
+    }
+    .card-stock strong { color: var(--c-primary); }
+
+    .card-body {
+      font-size: 0.82rem;
+      color: var(--c-muted);
+      margin-bottom: 10px;
+      min-height: 1.4em;
+    }
+    .runout-label { margin-right: 4px; }
+    .runout { font-weight: 600; color: var(--c-text); }
+    .range  { margin-left: 4px; font-size: 0.75rem; }
+    .no-estimate { font-style: italic; }
+    .learning-badge {
+      display: inline-block;
+      margin-left: 6px;
+      font-size: 0.7rem;
+      padding: 1px 6px;
+      border-radius: 99px;
+      background: #e0e7ff;
+      color: #3730a3;
+    }
+
+    /* ── Card actions ── */
+    .card-actions { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+
+    .btn-buy {
+      flex: 1;
+      background: var(--c-primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 9px 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      min-width: 70px;
+    }
+    .btn-buy:active  { opacity: .8; }
+    .btn-buy:disabled { background: #94a3b8; cursor: not-allowed; }
+
+    .btn-open {
+      flex: 1;
+      background: #fff;
+      color: var(--c-primary);
+      border: 2px solid var(--c-primary);
+      border-radius: 8px;
+      padding: 7px 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      cursor: pointer;
+      min-width: 70px;
+    }
+    .btn-open:active   { opacity: .8; }
+    .btn-open:disabled { border-color: #94a3b8; color: #94a3b8; cursor: not-allowed; }
+
+    .btn-icon {
+      background: var(--c-border);
+      border: none;
+      border-radius: 8px;
+      padding: 9px 12px;
+      cursor: pointer;
+      font-size: 1rem;
+    }
+    .btn-undo {
+      font-size: 0.78rem;
+      padding: 6px 10px;
+      border: 1px solid var(--c-muted);
+      border-radius: 8px;
+      background: none;
+      color: var(--c-muted);
+      cursor: pointer;
+      animation: fadein .2s;
+    }
+    @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+
+    /* ── Soon list ── */
+    .soon-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: var(--c-card);
+      padding: 12px 14px;
+      border-radius: var(--radius);
+      border: 1px solid var(--c-border);
+      cursor: pointer;
+    }
+    .soon-item input { width: 18px; height: 18px; flex-shrink: 0; cursor: pointer; }
+    .soon-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+    .soon-name { font-weight: 600; }
+    .soon-stock { font-size: 0.78rem; color: var(--c-muted); }
+
+    /* ── Forms ── */
+    form { display: flex; flex-direction: column; gap: 14px; }
+    label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; font-weight: 600; }
+    input[type="text"],
+    input[type="number"],
+    input[type="time"] {
+      padding: 10px 12px;
+      border: 1px solid var(--c-border);
+      border-radius: 8px;
+      font-size: 1rem;
+      outline: none;
+      font-weight: 400;
+    }
+    input:focus { border-color: var(--c-primary); }
+    .req { color: var(--c-overdue); }
+    .form-actions { display: flex; gap: 8px; }
+
+    details { border: 1px solid var(--c-border); border-radius: 8px; padding: 10px 12px; }
+    summary.detail-toggle {
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--c-muted);
+      list-style: none;
+    }
+    summary.detail-toggle::before { content: "▶ "; font-size: 0.7rem; }
+    details[open] summary.detail-toggle::before { content: "▼ "; }
+    .detail-body { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+
+    /* ── Buttons ── */
+    .btn-primary {
+      background: var(--c-primary);
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      padding: 10px 20px;
+      font-size: 0.95rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-ghost {
+      background: none;
+      border: 1px solid var(--c-border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.9rem;
+      cursor: pointer;
+      color: var(--c-text);
+    }
+    .btn-danger {
+      background: none;
+      border: 1px solid var(--c-overdue);
+      color: var(--c-overdue);
+      border-radius: 8px;
+      padding: 10px 16px;
+      font-size: 0.9rem;
+      cursor: pointer;
+    }
+    .data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+    .hint { font-size: 0.82rem; color: var(--c-muted); }
+    .empty { text-align: center; padding: 40px 20px; color: var(--c-muted); }
+    .empty p { margin-bottom: 16px; }
+
+    hr { border: none; border-top: 1px solid var(--c-border); margin: 16px 0; }
+    h3 { font-size: 0.95rem; margin-bottom: 8px; }
+
+    /* ── Dialog ── */
+    dialog {
+      border: none;
+      border-radius: var(--radius);
+      padding: 20px;
+      width: min(400px, 95vw);
+      box-shadow: 0 8px 32px rgba(0,0,0,.15);
+    }
+    dialog::backdrop { background: rgba(0,0,0,.4); }
+    .dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+    }
+    .dialog-header h2 { font-size: 1rem; }
+    #btn-close-edit {
+      background: none;
+      border: none;
+      font-size: 1.2rem;
+      cursor: pointer;
+      color: var(--c-muted);
+    }
+    .dialog-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+  </style>
+</head>
+<body>
+
+<header>
+  <h1>消耗品ストック予測</h1>
+  <button id="btn-add">+ 追加</button>
+</header>
+
+<nav>
+  <button class="nav-tab active" data-view="home">ホーム</button>
+  <button class="nav-tab" data-view="soon">そろそろ</button>
+  <button class="nav-tab" data-view="settings">設定</button>
+</nav>
+
+<main id="main">
+  <div class="empty"><p>読み込み中…</p></div>
+</main>
+
+<!-- 編集ダイアログ -->
+<dialog id="edit-dialog">
+  <div class="dialog-header">
+    <h2>品目を編集</h2>
+    <button id="btn-close-edit">✕</button>
+  </div>
+  <form id="edit-form">
+    <label>品目名
+      <input type="text" id="e-name" required>
+    </label>
+    <label>現在の在庫数
+      <input type="number" id="e-stock" step="0.5" min="0">
+    </label>
+    <label>在庫の単位
+      <input type="text" id="e-unit" placeholder="個">
+    </label>
+    <details>
+      <summary class="detail-toggle">詳細設定</summary>
+      <div class="detail-body">
+        <label>パッケージ量
+          <input type="number" id="e-qty" step="0.1" min="0.1">
+        </label>
+        <label>初期消費ペース申告（日）
+          <input type="number" id="e-prior" step="1" min="1">
+        </label>
+        <label>単価（円）
+          <input type="number" id="e-price" step="1" min="0">
+        </label>
+      </div>
+    </details>
+    <div class="form-actions">
+      <button type="submit" class="btn-primary">保存</button>
+    </div>
+  </form>
+  <div class="dialog-footer">
+    <button id="btn-archive" class="btn-danger">アーカイブ</button>
+  </div>
+</dialog>
+
+<script src="./db.js"></script>
+<script src="./forecast.js"></script>
+<script src="./app.js"></script>
+</body>
+</html>
