@@ -2,7 +2,7 @@
 
 const DB = (() => {
   const NAME = 'consumable-forecast';
-  const VER  = 1;
+  const VER  = 2;   // v2: adjustments（在庫の数え直し）を追加
   let _db = null;
 
   function open() {
@@ -24,6 +24,10 @@ const DB = (() => {
         }
         if (!db.objectStoreNames.contains('settings')) {
           db.createObjectStore('settings', { keyPath: 'id' });
+        }
+        if (!db.objectStoreNames.contains('adjustments')) {
+          const s = db.createObjectStore('adjustments', { keyPath: 'id', autoIncrement: true });
+          s.createIndex('item_id', 'item_id', { unique: false });
         }
       };
       req.onsuccess  = ({ target: { result } }) => { _db = result; resolve(_db); };
@@ -119,11 +123,30 @@ const DB = (() => {
     return wrap(t.objectStore('openings').delete(id));
   }
 
+  // ── adjustments（在庫の数え直し）────────────────────────────────────────
+
+  async function getAdjustmentsByItem(itemId) {
+    const t = await tx('adjustments');
+    return wrap(t.objectStore('adjustments').index('item_id').getAll(itemId));
+  }
+
+  async function addAdjustment(a) {
+    const t = await tx('adjustments', 'readwrite');
+    const id = await wrap(t.objectStore('adjustments').add(a));
+    return { ...a, id };
+  }
+
+  async function deleteAdjustment(id) {
+    const t = await tx('adjustments', 'readwrite');
+    return wrap(t.objectStore('adjustments').delete(id));
+  }
+
   // ── settings ──────────────────────────────────────────────────────────────
 
   const DEFAULT_SETTINGS = {
     id: 1, lead_time_days: 3, safety_margin_days: 2,
     notify_time: '08:00', shopping_weekday: null, last_notified_date: null,
+    last_export_date: null, last_seen_version: null,
   };
 
   async function getSettings() {
@@ -139,27 +162,28 @@ const DB = (() => {
 
   // ── export / import ───────────────────────────────────────────────────────
 
+  const STORES = ['items', 'purchases', 'openings', 'adjustments', 'settings'];
+
   async function exportAll() {
     const db = await open();
-    const t = db.transaction(['items', 'purchases', 'openings', 'settings'], 'readonly');
-    const [items, purchases, openings, settings] = await Promise.all([
+    const t = db.transaction(STORES, 'readonly');
+    const [items, purchases, openings, adjustments, settings] = await Promise.all([
       wrap(t.objectStore('items').getAll()),
       wrap(t.objectStore('purchases').getAll()),
       wrap(t.objectStore('openings').getAll()),
+      wrap(t.objectStore('adjustments').getAll()),
       wrap(t.objectStore('settings').get(1)),
     ]);
-    return { items, purchases, openings, settings: settings ?? {} };
+    return { items, purchases, openings, adjustments, settings: settings ?? {} };
   }
 
   async function importAll(data) {
     const db = await open();
-    const t = db.transaction(['items', 'purchases', 'openings', 'settings'], 'readwrite');
-    t.objectStore('items').clear();
-    t.objectStore('purchases').clear();
-    t.objectStore('openings').clear();
-    for (const item of data.items    ?? []) t.objectStore('items').put(item);
-    for (const p    of data.purchases ?? []) t.objectStore('purchases').put(p);
-    for (const o    of data.openings  ?? []) t.objectStore('openings').put(o);
+    const t = db.transaction(STORES, 'readwrite');
+    for (const name of ['items', 'purchases', 'openings', 'adjustments']) {
+      t.objectStore(name).clear();
+      for (const rec of data[name] ?? []) t.objectStore(name).put(rec);
+    }
     if (data.settings && Object.keys(data.settings).length) {
       t.objectStore('settings').put({ ...DEFAULT_SETTINGS, ...data.settings, id: 1 });
     }
@@ -170,6 +194,7 @@ const DB = (() => {
     getItems, getItem, addItem, putItem,
     getPurchasesByItem, addPurchase, getPurchase, updatePurchase, deletePurchase,
     getOpeningsByItem, addOpening, getOpening, deleteOpening,
+    getAdjustmentsByItem, addAdjustment, deleteAdjustment,
     getSettings, putSettings,
     exportAll, importAll,
   };

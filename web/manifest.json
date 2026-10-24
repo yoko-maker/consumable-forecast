@@ -1,15 +1,52 @@
 {
+  "id": "./",
   "name": "消耗品ストック予測",
   "short_name": "ストック予測",
+  "description": "在庫を数えずに、切らさず・買いすぎずに回す消耗品ストック予測",
+  "lang": "ja",
   "start_url": "./",
+  "scope": "./",
   "display": "standalone",
+  "orientation": "portrait",
   "background_color": "#ffffff",
   "theme_color": "#4f7fff",
+  "categories": [
+    "lifestyle",
+    "productivity",
+    "shopping"
+  ],
   "icons": [
     {
       "src": "./icon-192.png",
       "sizes": "192x192",
-      "type": "image/png"
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "./icon-maskable-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "そろそろリスト",
+      "short_name": "そろそろ",
+      "url": "./?view=soon",
+      "icons": [
+        {
+          "src": "./icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
     }
   ]
 }

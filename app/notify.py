@@ -14,7 +14,7 @@ def get_soon_items() -> list[dict]:
             FROM items i
             JOIN estimates e ON e.item_id = i.id
             WHERE i.archived = 0
-              AND e.notify_date <= ?
+              AND substr(e.notify_date, 1, 10) <= ?
             ORDER BY e.expected_runout
             """,
             (today,),

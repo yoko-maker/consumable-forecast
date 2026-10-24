@@ -149,3 +149,69 @@ def test_delete_opening():
     assert r.status_code == 204
     updated = client.get("/api/items").json()[0]
     assert updated["current_stock"] == 3  # 使用開始が消えて戻る
+
+
+# ── 通知日が今日の品目もそろそろリストに出る ──────────────────────────────────
+
+def test_soon_includes_notify_today():
+    item = client.post("/api/items", json={"name": "歯磨き粉", "prior_interval_days": 5}).json()
+    now = datetime.now()
+    for d in (timedelta(days=5, hours=1), timedelta(hours=1)):
+        client.post(f"/api/items/{item['id']}/openings", json={"opened_at": (now - d).isoformat()})
+    d = client.get("/api/items").json()[0]
+    assert d["notify_date"][:10] <= now.strftime("%Y-%m-%d")
+    assert any(s["id"] == item["id"] for s in client.get("/api/soon").json())
+
+
+# ── タイムゾーン付き日時も受け付ける ──────────────────────────────────────────
+
+def test_timezone_aware_datetime():
+    item = client.post("/api/items", json={"name": "洗剤", "initial_stock": 3}).json()
+    for ts in ("2026-01-01T01:00:00Z", "2026-01-31T10:00:00+09:00"):
+        r = client.post(f"/api/items/{item['id']}/openings", json={"opened_at": ts})
+        assert r.status_code == 201
+    r = client.post(f"/api/items/{item['id']}/purchases", json={"purchased_at": "2026-02-01T00:00:00Z"})
+    assert r.status_code == 201
+    d = client.get("/api/items").json()[0]
+    assert d["current_stock"] == 2
+    assert d["expected_runout"] is not None
+
+
+def test_invalid_datetime_rejected():
+    item = client.post("/api/items", json={"name": "洗剤"}).json()
+    r = client.post(f"/api/items/{item['id']}/openings", json={"opened_at": "not-a-date"})
+    assert r.status_code == 422
+
+
+# ── 在庫切れ後の購入は 0 から数え直す ─────────────────────────────────────────
+
+def test_stock_resets_after_running_out_api():
+    item = client.post("/api/items", json={"name": "ティッシュ", "initial_stock": 1}).json()
+    base = datetime.now() - timedelta(days=30)
+    for i in range(3):
+        client.post(f"/api/items/{item['id']}/openings",
+                    json={"opened_at": (base + timedelta(days=i * 7)).isoformat()})
+    assert client.get("/api/items").json()[0]["current_stock"] == 0
+    client.post(f"/api/items/{item['id']}/purchases", json={"quantity": 2})
+    assert client.get("/api/items").json()[0]["current_stock"] == 2
+
+
+# ── PATCH / そろそろチェックの異常系 ──────────────────────────────────────────
+
+def test_patch_missing_item_404():
+    assert client.patch("/api/items/99999", json={"name": "x"}).status_code == 404
+
+
+def test_patch_can_clear_optional_field():
+    item = client.post("/api/items", json={"name": "洗剤", "unit_price": 300,
+                                           "prior_interval_days": 20}).json()
+    r = client.patch(f"/api/items/{item['id']}", json={"unit_price": None})
+    assert r.status_code == 200
+    assert r.json()["unit_price"] is None
+    assert r.json()["prior_interval_days"] == 20  # 送っていない項目はそのまま
+    assert client.patch(f"/api/items/{item['id']}", json={"name": None}).status_code == 422
+
+
+def test_check_soon_unknown_item_404():
+    r = client.post("/api/soon/check", json={"item_ids": [99999]})
+    assert r.status_code == 404

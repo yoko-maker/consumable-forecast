@@ -5,9 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>消耗品ストック予測</title>
   <link rel="manifest" href="./manifest.json">
+  <link rel="icon" type="image/png" sizes="32x32" href="./favicon-32.png">
+  <link rel="apple-touch-icon" href="./apple-touch-icon.png">
   <meta name="theme-color" content="#4f7fff">
+  <meta name="description" content="在庫を数えずに、切らさず・買いすぎずに回す消耗品ストック予測">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="ストック予測">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    [hidden] { display: none !important; }
 
     :root {
       --c-primary: #4f7fff;
@@ -40,7 +47,8 @@
       align-items: center;
       justify-content: space-between;
     }
-    header h1 { font-size: 1.1rem; font-weight: 700; }
+    header h1 { font-size: 1.1rem; font-weight: 700; display: flex; align-items: center; gap: 8px; }
+    header h1 img { width: 28px; height: 28px; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,.2); }
     #btn-add {
       background: rgba(255,255,255,0.2);
       border: none;
@@ -168,6 +176,8 @@
     .btn-open:disabled { border-color: #94a3b8; color: #94a3b8; cursor: not-allowed; }
 
     .btn-icon {
+      display: inline-flex; align-items: center; justify-content: center;
+      color: var(--c-text);
       background: var(--c-border);
       border: none;
       border-radius: 8px;
@@ -190,6 +200,8 @@
     /* ── Soon list ── */
     .soon-item {
       display: flex;
+      flex-direction: row;
+      font-weight: 400;
       align-items: center;
       gap: 10px;
       background: var(--c-card);
@@ -209,6 +221,8 @@
     input[type="text"],
     input[type="number"],
     input[type="time"] {
+      width: 100%;
+      min-width: 0;
       padding: 10px 12px;
       border: 1px solid var(--c-border);
       border-radius: 8px;
@@ -262,6 +276,7 @@
       cursor: pointer;
     }
     .data-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+    .data-actions label { font-weight: 400; flex-direction: row; align-items: center; font-size: 0.9rem; }
 
     .hint { font-size: 0.82rem; color: var(--c-muted); }
     .empty { text-align: center; padding: 40px 20px; color: var(--c-muted); }
@@ -272,6 +287,8 @@
 
     /* ── Dialog ── */
     dialog {
+      margin: auto;   /* 全体リセットの margin:0 で中央寄せが消えるのを戻す */
+      max-height: 90dvh;
       border: none;
       border-radius: var(--radius);
       padding: 20px;
@@ -286,20 +303,97 @@
       margin-bottom: 16px;
     }
     .dialog-header h2 { font-size: 1rem; }
-    #btn-close-edit {
-      background: none;
-      border: none;
-      font-size: 1.2rem;
-      cursor: pointer;
-      color: var(--c-muted);
-    }
     .dialog-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+    /* ── Summary / banner ── */
+    .summary { display: flex; flex-wrap: wrap; gap: 6px; }
+    .chip {
+      font-size: 0.8rem; padding: 5px 12px; border-radius: 99px; border: none;
+      font-weight: 600; font-family: inherit; cursor: default;
+    }
+    button.chip { cursor: pointer; }
+    .chip-overdue { background: #fee2e2; color: #991b1b; }
+    .chip-soon    { background: #fef3c7; color: #92400e; }
+    .chip-ok      { background: #dcfce7; color: #15803d; }
+    .chip-cost    { background: #e0e7ff; color: #3730a3; }
+    .banner {
+      display: flex; align-items: center; justify-content: space-between; gap: 8px;
+      background: #fffbeb; border: 1px solid #fde68a; color: #92400e;
+      border-radius: var(--radius); padding: 10px 12px; font-size: 0.82rem;
+    }
+    .btn-small { padding: 5px 10px; font-size: 0.8rem; white-space: nowrap; background: #fff; }
+
+    /* ── Card (jar) ── */
+    .card-main { display: flex; gap: 12px; align-items: flex-start; }
+    .card-content { flex: 1; min-width: 0; }
+    .jar { width: 40px; height: 48px; flex-shrink: 0; margin-top: 2px; }
+    .item-name {
+      background: none; border: none; padding: 0; font: inherit; color: inherit; cursor: pointer;
+      text-align: left; display: flex; align-items: center; gap: 6px; min-width: 0;
+    }
+    .item-emoji { font-size: 1.15rem; line-height: 1; }
+    .cost { margin-left: 6px; font-size: 0.75rem; color: #3730a3; }
+
+    /* ── Emoji picker ── */
+    .field { display: flex; flex-direction: column; gap: 4px; }
+    .field-label { font-size: 0.85rem; font-weight: 600; }
+    .emoji-picker { display: flex; flex-wrap: wrap; gap: 4px; }
+    .emoji-opt {
+      min-width: 38px; height: 38px; border-radius: 8px; border: 1px solid var(--c-border);
+      background: #fff; font-size: 1.2rem; cursor: pointer; padding: 0 6px;
+    }
+    .emoji-opt[data-emoji=""] { font-size: 0.75rem; color: var(--c-muted); }
+    .emoji-opt.selected { border: 2px solid var(--c-primary); background: #eef2ff; }
+    .row { display: flex; gap: 8px; }
+    .row > label { flex: 1; min-width: 0; }
+
+    /* ── Empty / settings ── */
+    .empty-mascot { width: 88px; height: 88px; border-radius: 22px; margin-bottom: 12px;
+                    box-shadow: 0 4px 14px rgba(79,127,255,.3); }
+    .section { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+    .status-line { font-size: 0.85rem; }
+    .status-line.warn { color: #92400e; }
+    .soon-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+
+    /* ── History ── */
+    .history-stock { font-size: 0.9rem; margin-bottom: 12px; }
+    .history-add {
+      display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 8px;
+      background: var(--c-bg); border-radius: 8px; padding: 10px; margin-bottom: 12px;
+    }
+    .history-add label { font-size: 0.75rem; }
+    .history-add .full { grid-column: 1 / -1; }
+    .history-add input, .history-add select { width: 100%; min-width: 0; }
+    .history-add select, .history-add input[type="datetime-local"] {
+      padding: 8px 10px; border: 1px solid var(--c-border); border-radius: 8px;
+      font-size: 0.9rem; background: #fff; font-family: inherit;
+    }
+    #history-list { list-style: none; max-height: 45vh; overflow-y: auto; }
+    .history-row {
+      display: flex; align-items: center; gap: 8px; padding: 8px 2px;
+      border-bottom: 1px solid var(--c-border); font-size: 0.85rem;
+    }
+    .history-text { flex: 1; }
+    .history-text small { color: var(--c-muted); margin-left: 4px; }
+    .history-date { color: var(--c-muted); font-size: 0.78rem; white-space: nowrap; }
+    .btn-del { background: none; border: none; color: var(--c-muted); cursor: pointer; padding: 4px 6px; }
+    .btn-close { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--c-muted); }
+    /* ── Update notice ── */
+    .app-notice {
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 8px;
+      background: #eef2ff; border-bottom: 1px solid #c7d2fe; color: #3730a3;
+      padding: 10px 14px; font-size: 0.85rem;
+    }
+    .app-notice > span { align-self: center; }
+    .app-notice ul { margin: 6px 0 0 1.2em; font-size: 0.8rem; }
+    .btn-notice { background: var(--c-primary); color: #fff; border: none; border-radius: 8px; cursor: pointer; }
+    .choice-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
+    #choice-message { font-size: 0.9rem; }
   </style>
 </head>
 <body>
 
 <header>
-  <h1>消耗品ストック予測</h1>
+  <h1><img src="./icon-192.png" alt="">消耗品ストック予測</h1>
   <button id="btn-add">+ 追加</button>
 </header>
 
@@ -309,6 +403,8 @@
   <button class="nav-tab" data-view="settings">設定</button>
 </nav>
 
+<div id="app-notice" class="app-notice" hidden></div>
+
 <main id="main">
   <div class="empty"><p>読み込み中…</p></div>
 </main>
@@ -317,34 +413,45 @@
 <dialog id="edit-dialog">
   <div class="dialog-header">
     <h2>品目を編集</h2>
-    <button id="btn-close-edit">✕</button>
+    <button id="btn-close-edit" class="btn-close">✕</button>
   </div>
   <form id="edit-form">
     <label>品目名
       <input type="text" id="e-name" required>
     </label>
-    <label>現在の在庫数
+    <div class="field">
+      <span class="field-label">アイコン</span>
+      <div id="e-emoji-wrap"></div>
+    </div>
+    <label>登録時の在庫数
       <input type="number" id="e-stock" step="0.5" min="0">
     </label>
+    <p class="hint">いまの在庫を合わせたいときは「履歴」から「在庫を数え直す」を記録してください。</p>
     <label>在庫の単位
       <input type="text" id="e-unit" placeholder="個">
     </label>
     <details>
-      <summary class="detail-toggle">詳細設定</summary>
+      <summary class="detail-toggle">詳細設定（空欄で解除）</summary>
       <div class="detail-body">
-        <label>パッケージ量
-          <input type="number" id="e-qty" step="0.1" min="0.1">
-        </label>
+        <div class="row">
+          <label>1つあたりの量
+            <input type="number" id="e-qty" step="0.1" min="0.1">
+          </label>
+          <label>量の単位
+            <input type="text" id="e-punit" placeholder="例: ml">
+          </label>
+        </div>
         <label>初期消費ペース申告（日）
           <input type="number" id="e-prior" step="1" min="1">
         </label>
-        <label>単価（円）
+        <label>単価（円・1つあたり）
           <input type="number" id="e-price" step="1" min="0">
         </label>
       </div>
     </details>
     <div class="form-actions">
       <button type="submit" class="btn-primary">保存</button>
+      <button type="button" id="btn-edit-history" class="btn-ghost">📜 履歴</button>
     </div>
   </form>
   <div class="dialog-footer">
@@ -352,6 +459,40 @@
   </div>
 </dialog>
 
+<!-- 履歴ダイアログ -->
+<dialog id="history-dialog">
+  <div class="dialog-header">
+    <h2 id="history-title">履歴</h2>
+    <button id="btn-close-history" class="btn-close">✕</button>
+  </div>
+  <div id="history-stock" class="history-stock"></div>
+  <form id="history-form" class="history-add">
+    <label>記録の種類
+      <select id="h-type">
+        <option value="purchase">🛒 買った</option>
+        <option value="opening">📂 使用開始</option>
+        <option value="adjust">🔢 在庫を数え直す</option>
+      </select>
+    </label>
+    <label id="h-qty-label"><span>個数</span>
+      <input type="number" id="h-qty" step="0.5" min="0.5" value="1">
+    </label>
+    <label class="full">日時
+      <input type="datetime-local" id="h-at">
+    </label>
+    <button type="submit" class="btn-primary full">記録を追加</button>
+  </form>
+  <ul id="history-list"></ul>
+</dialog>
+
+<!-- 選択ダイアログ -->
+<dialog id="choice-dialog">
+  <h2 id="choice-title" style="font-size:1rem;margin-bottom:8px"></h2>
+  <p id="choice-message"></p>
+  <div class="choice-actions"></div>
+</dialog>
+
+<script src="./version.js"></script>
 <script src="./db.js"></script>
 <script src="./forecast.js"></script>
 <script src="./app.js"></script>

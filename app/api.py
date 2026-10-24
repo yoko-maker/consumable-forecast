@@ -3,9 +3,10 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
 
-from .forecast import compute_status, estimate, calc_stock
+from . import notion_sync
+from .forecast import compute_status, parse_dt
 from .models import get_connection
-from .scheduler import recompute_all
+from .scheduler import recompute_all, recompute_item as _recompute_item
 
 router = APIRouter(prefix="/api")
 
@@ -43,6 +44,10 @@ class OpeningCreate(BaseModel):
     source: str = "manual"
 
 
+class SoonCheck(BaseModel):
+    item_ids: list[int]
+
+
 class SettingsPatch(BaseModel):
     lead_time_days: int | None = None
     safety_margin_days: int | None = None
@@ -51,52 +56,14 @@ class SettingsPatch(BaseModel):
 
 # ── helpers ─────────────────────────────────────────────────────────────────
 
-def _recompute_item(item_id: int) -> None:
-    with get_connection() as conn:
-        item = conn.execute("SELECT * FROM items WHERE id = ?", (item_id,)).fetchone()
-        settings = conn.execute("SELECT * FROM settings WHERE id = 1").fetchone()
-        purchase_rows = conn.execute(
-            "SELECT quantity FROM purchases WHERE item_id = ?", (item_id,)
-        ).fetchall()
-        opening_rows = conn.execute(
-            "SELECT opened_at FROM openings WHERE item_id = ? ORDER BY opened_at",
-            (item_id,),
-        ).fetchall()
-
-    purchase_qty_sum = sum(r["quantity"] for r in purchase_rows)
-    opening_count = len(opening_rows)
-    current_stock = calc_stock(item["initial_stock"] or 0, purchase_qty_sum, opening_count)
-
-    openings = [datetime.fromisoformat(r["opened_at"]) for r in opening_rows]
-
-    result = estimate(
-        openings=openings,
-        current_stock=current_stock,
-        package_qty=item["package_qty"] or 1.0,
-        prior_interval_days=item["prior_interval_days"],
-        lead_time=settings["lead_time_days"],
-        safety_margin=settings["safety_margin_days"],
-    )
-
-    now_str = datetime.now().isoformat()
-    with get_connection() as conn:
-        conn.execute(
-            """INSERT OR REPLACE INTO estimates
-               (item_id, current_stock, consumption_rate, expected_runout,
-                depletion_low, depletion_high, notify_date, learning, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                item_id,
-                result["current_stock"],
-                result["consumption_rate"],
-                result["expected_runout"].isoformat() if result["expected_runout"] else None,
-                result["depletion_low"].isoformat() if result["depletion_low"] else None,
-                result["depletion_high"].isoformat() if result["depletion_high"] else None,
-                result["notify_date"].isoformat() if result["notify_date"] else None,
-                int(result["learning"]),
-                now_str,
-            ),
-        )
+def _normalize_dt(value: str | None) -> str:
+    """入力日時をローカル時刻の naive ISO 文字列にそろえる（未指定なら現在時刻）。"""
+    if value is None:
+        return datetime.now().isoformat()
+    try:
+        return parse_dt(value).isoformat()
+    except ValueError:
+        raise HTTPException(422, f"invalid datetime: {value}")
 
 
 def _item_with_estimate(item_id: int) -> dict:
@@ -163,17 +130,23 @@ def create_item(body: ItemCreate):
 
 @router.patch("/items/{item_id}")
 def patch_item(item_id: int, body: ItemPatch):
-    fields = {k: v for k, v in body.model_dump().items() if v is not None}
+    # 送られた項目だけ更新する。任意項目は null を送ると解除できる
+    fields = body.model_dump(exclude_unset=True)
+    for required in ("name", "initial_stock", "stock_unit", "is_seasonal"):
+        if required in fields and fields[required] is None:
+            raise HTTPException(422, f"{required} cannot be null")
     if not fields:
         raise HTTPException(400, "no fields to update")
     if "is_seasonal" in fields:
         fields["is_seasonal"] = int(fields["is_seasonal"])
     set_clause = ", ".join(f"{k} = ?" for k in fields)
     with get_connection() as conn:
-        conn.execute(
+        cur = conn.execute(
             f"UPDATE items SET {set_clause} WHERE id = ? AND archived = 0",
             (*fields.values(), item_id),
         )
+        if cur.rowcount == 0:
+            raise HTTPException(404, "item not found")
     _recompute_item(item_id)
     return _item_with_estimate(item_id)
 
@@ -188,12 +161,12 @@ def archive_item(item_id: int):
 
 @router.post("/items/{item_id}/purchases", status_code=201)
 def add_purchase(item_id: int, body: PurchaseCreate):
-    purchased_at = body.purchased_at or datetime.now().isoformat()
+    purchased_at = _normalize_dt(body.purchased_at)
     today = purchased_at[:10]
 
     with get_connection() as conn:
         item = conn.execute(
-            "SELECT id FROM items WHERE id = ? AND archived = 0", (item_id,)
+            "SELECT id, name FROM items WHERE id = ? AND archived = 0", (item_id,)
         ).fetchone()
         if item is None:
             raise HTTPException(404, "item not found")
@@ -220,6 +193,13 @@ def add_purchase(item_id: int, body: PurchaseCreate):
             purchase_id = cur.lastrowid
 
     _recompute_item(item_id)
+    notion_sync.sync_purchase(
+        item_id=item_id,
+        item_name=item["name"],
+        quantity=body.quantity,
+        purchased_at=purchased_at,
+        source=body.source,
+    )
     return {"id": purchase_id, "item_id": item_id, "purchased_at": purchased_at}
 
 
@@ -240,7 +220,7 @@ def delete_purchase(purchase_id: int):
 
 @router.post("/items/{item_id}/openings", status_code=201)
 def add_opening(item_id: int, body: OpeningCreate):
-    opened_at = body.opened_at or datetime.now().isoformat()
+    opened_at = _normalize_dt(body.opened_at)
 
     with get_connection() as conn:
         item = conn.execute(
@@ -280,11 +260,20 @@ def soon_list():
 
 
 @router.post("/soon/check")
-def check_soon(body: dict):
-    item_ids: list[int] = body.get("item_ids", [])
+def check_soon(body: SoonCheck):
     now = datetime.now().isoformat()
+    with get_connection() as conn:
+        found = {
+            r["id"] for r in conn.execute(
+                f"SELECT id FROM items WHERE archived = 0 AND id IN ({','.join('?' * len(body.item_ids))})",
+                body.item_ids,
+            )
+        } if body.item_ids else set()
+    missing = [i for i in body.item_ids if i not in found]
+    if missing:
+        raise HTTPException(404, f"item not found: {missing}")
     results = []
-    for item_id in item_ids:
+    for item_id in body.item_ids:
         with get_connection() as conn:
             cur = conn.execute(
                 "INSERT INTO purchases (item_id, purchased_at, quantity, source) VALUES (?, ?, 1.0, 'list')",

@@ -1,6 +1,10 @@
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).parent.parent / ".env")
+
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from apscheduler.schedulers.background import BackgroundScheduler
@@ -27,7 +31,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Consumable Forecast", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Consumable Forecast", version="0.2.0", lifespan=lifespan)
 app.include_router(router)
 
 WEB_DIR = Path(__file__).parent.parent / "web"
