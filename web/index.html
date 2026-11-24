@@ -288,6 +288,16 @@
     }
     .dialog-header h2 { font-size: 1rem; }
     .dialog-footer { display: flex; justify-content: flex-end; margin-top: 16px; }
+    .recount-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+    .recount-row .hint { flex: 1; }
+    .recount-row button { flex: none; }
+    .choice-actions .btn-danger { width: 100%; }
+    .archived-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+    .archived-list li {
+      display: flex; align-items: center; gap: 8px; padding: 8px 10px;
+      border: 1px solid var(--c-border); border-radius: 10px; background: var(--c-card);
+    }
+    .archived-list .archived-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     /* ── Summary / banner ── */
     .summary { display: flex; flex-wrap: wrap; gap: 6px; }
     .chip {
@@ -547,7 +557,10 @@
     <label>登録時の在庫数
       <input type="number" id="e-stock" step="0.5" min="0">
     </label>
-    <p class="hint">いまの在庫を合わせたいときは「履歴」から「在庫を数え直す」を記録してください。</p>
+    <div class="recount-row">
+      <p class="hint">在庫の数が合わないときは、いまの数を記録し直せます。</p>
+      <button type="button" id="btn-recount" class="btn-ghost btn-small">🔢 在庫を数え直す</button>
+    </div>
     <label>在庫の単位
       <input type="text" id="e-unit" placeholder="個">
     </label>
@@ -577,7 +590,7 @@
     </div>
   </form>
   <div class="dialog-footer">
-    <button id="btn-archive" class="btn-danger">アーカイブ</button>
+    <button id="btn-archive" class="btn-danger">管理をやめる・削除…</button>
   </div>
 </dialog>
 
