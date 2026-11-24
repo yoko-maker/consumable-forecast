@@ -41,22 +41,18 @@
     /* ── App shell ── */
     button { font-family: inherit; }
     :focus-visible { outline: 3px solid var(--c-primary); outline-offset: 3px; }
-    .app-header { background: var(--c-card); border-bottom: 1px solid var(--c-border); }
-    .header-inner, nav, #main, .app-notice {
+    .app-header {
+      background: var(--c-card); border-bottom: 1px solid var(--c-border);
+      padding-top: env(safe-area-inset-top);
+    }
+    .visually-hidden {
+      position: absolute; width: 1px; height: 1px; overflow: hidden;
+      clip: rect(0 0 0 0); white-space: nowrap;
+    }
+    nav, #main, .app-notice {
       width: min(100%, 960px);
       margin-inline: auto;
     }
-    .header-inner {
-      padding: 16px 20px 10px;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      gap: 12px;
-    }
-    .header-inner h1 { font-size: 1rem; display: flex; align-items: center; gap: 9px; }
-    .header-inner h1 img { width: 34px; height: 34px; border-radius: 10px; flex: none; }
-    #btn-add { flex: none; min-height: 44px; padding-inline: 14px; }
-
     nav { display: flex; padding-inline: 14px; }
     .nav-tab {
       min-height: 46px;
@@ -91,7 +87,7 @@
       .nav-tab { flex: 0 0 115px; }
     }
     @media (max-width: 380px) {
-      .header-inner, #main { padding-inline: 12px; }
+      #main { padding-inline: 12px; }
     }
 
     /* ── Card ── */
@@ -518,10 +514,7 @@
 <body>
 
 <header class="app-header">
-  <div class="header-inner">
-    <h1><img src="./icon-192.png" alt="">消耗品ストック予測</h1>
-    <button class="btn-primary" id="btn-add">＋ 追加</button>
-  </div>
+  <h1 class="visually-hidden">消耗品ストック予測</h1>
 
 <nav aria-label="メイン">
   <button class="nav-tab active" data-view="home" aria-current="page">ホーム</button>
