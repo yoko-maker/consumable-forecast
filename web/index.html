@@ -388,6 +388,78 @@
     .btn-notice { background: var(--c-primary); color: #fff; border: none; border-radius: 8px; cursor: pointer; }
     .choice-actions { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
     #choice-message { font-size: 0.9rem; }
+
+    /* ── 家計簿 ── */
+    .exp-month { display: flex; align-items: center; justify-content: center; gap: 16px; font-size: 1.05rem; }
+    .exp-month button:disabled { opacity: .35; cursor: default; }
+    .exp-total-card {
+      background: var(--c-card); border-radius: var(--radius); padding: 14px;
+      box-shadow: 0 1px 4px rgba(0,0,0,.06); display: flex; flex-direction: column; gap: 4px;
+    }
+    .exp-total-label { font-size: 0.8rem; color: var(--c-muted); }
+    .exp-total { font-size: 1.6rem; font-weight: 700; }
+    .exp-cats { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }
+    .exp-cat { display: grid; grid-template-columns: 6.5em 1fr auto; gap: 8px; align-items: center; font-size: 0.8rem; }
+    .exp-cat-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .exp-bar { height: 8px; background: var(--c-bg); border-radius: 99px; overflow: hidden; }
+    .exp-bar > span { display: block; height: 100%; background: var(--c-primary); border-radius: 99px; }
+    .exp-cat-val { font-variant-numeric: tabular-nums; }
+    .exp-list { display: flex; flex-direction: column; gap: 6px; }
+    .exp-day { font-size: 0.78rem; color: var(--c-muted); font-weight: 600; margin-top: 6px; }
+    .exp-row {
+      display: flex; align-items: center; gap: 10px; width: 100%; text-align: left;
+      background: var(--c-card); border: 1px solid var(--c-border); border-radius: var(--radius);
+      padding: 10px 12px; font: inherit; color: inherit; cursor: pointer;
+    }
+    .exp-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+    .exp-row-store { font-weight: 600; font-size: 0.92rem; }
+    .exp-row-store small { font-weight: 400; color: var(--c-muted); margin-left: 6px; font-size: 0.75rem; }
+    .exp-row-items { font-size: 0.78rem; color: var(--c-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .exp-row-total { font-weight: 700; font-variant-numeric: tabular-nums; }
+    .exp-stock-badge { font-size: 0.72rem; background: #e0e7ff; color: #3730a3; border-radius: 99px; padding: 2px 7px; }
+    .seg { display: flex; border: 1px solid var(--c-border); border-radius: 8px; overflow: hidden; }
+    .seg-btn { flex: 1; padding: 9px 0; border: none; background: #fff; font: inherit; font-size: 0.88rem; cursor: pointer; color: var(--c-muted); }
+    .seg-btn.active { background: var(--c-primary); color: #fff; font-weight: 600; }
+    #exp-form select, .select {
+      padding: 9px 10px; border: 1px solid var(--c-border); border-radius: 8px;
+      font-size: 0.9rem; background: #fff; font-family: inherit; min-width: 0; font-weight: 400;
+    }
+    input[type="date"] {
+      width: 100%; min-width: 0; padding: 9px 10px; border: 1px solid var(--c-border);
+      border-radius: 8px; font-size: 1rem; font-family: inherit; background: #fff; font-weight: 400;
+    }
+    #x-line-list { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+    .exp-line {
+      border: 1px solid var(--c-border); border-left: 4px solid var(--c-border); border-radius: 8px;
+      padding: 8px; display: flex; flex-direction: column; gap: 6px; background: #fff;
+    }
+    .exp-line.linked { border-left-color: var(--c-primary); background: #f5f8ff; }
+    .exp-line-top { display: flex; gap: 6px; align-items: center; }
+    .exp-line-top .l-name { flex: 1; }
+    .exp-line-top .l-amount { width: 6.5em; flex: none; text-align: right; }
+    .exp-line input[type="text"], .exp-line input[type="number"] { padding: 8px 10px; font-size: 0.95rem; }
+    .exp-line-sub { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 0.8rem; }
+    .exp-line-sub label { flex-direction: row; align-items: center; gap: 4px; font-weight: 400; font-size: 0.8rem; }
+    .exp-line-sub .l-qty, .exp-line-sub .l-stock { width: 4.2em; padding: 6px 8px; font-size: 0.9rem; }
+    .exp-line-sub select { padding: 6px 8px; font-size: 0.82rem; max-width: 100%; }
+    .exp-line-sub .l-cat { width: 7.5em; }
+    .exp-line-sub .l-item { flex: 1; min-width: 8em; }
+    .l-stock-wrap { color: var(--c-primary); font-weight: 600 !important; }
+    .exp-paste { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; align-items: flex-start; }
+    .exp-paste textarea {
+      width: 100%; border: 1px solid var(--c-border); border-radius: 8px; padding: 8px 10px;
+      font: inherit; font-size: 0.9rem;
+    }
+    .exp-sum { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-top: 10px; }
+    .exp-sum strong { font-size: 1.2rem; }
+    .exp-receipt { flex-direction: row !important; align-items: center; gap: 6px !important; font-weight: 400 !important; font-size: 0.8rem !important; }
+    .exp-receipt input { width: 7em; padding: 6px 8px; text-align: right; }
+    #x-diff { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+    .toast {
+      position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); z-index: 10;
+      background: #1e293b; color: #fff; padding: 10px 16px; border-radius: 10px; font-size: 0.85rem;
+      max-width: 92vw; box-shadow: 0 4px 16px rgba(0,0,0,.2); animation: fadein .2s;
+    }
   </style>
 </head>
 <body>
@@ -400,6 +472,7 @@
 <nav>
   <button class="nav-tab active" data-view="home">ホーム</button>
   <button class="nav-tab" data-view="soon">そろそろ</button>
+  <button class="nav-tab" data-view="expenses">家計簿</button>
   <button class="nav-tab" data-view="settings">設定</button>
 </nav>
 
@@ -496,5 +569,6 @@
 <script src="./db.js"></script>
 <script src="./forecast.js"></script>
 <script src="./app.js"></script>
+<script src="./expenses.js"></script>
 </body>
 </html>
