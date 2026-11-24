@@ -197,24 +197,6 @@
     }
     @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
 
-    /* ── Soon list ── */
-    .soon-item {
-      display: flex;
-      flex-direction: row;
-      font-weight: 400;
-      align-items: center;
-      gap: 10px;
-      background: var(--c-card);
-      padding: 12px 14px;
-      border-radius: var(--radius);
-      border: 1px solid var(--c-border);
-      cursor: pointer;
-    }
-    .soon-item input { width: 18px; height: 18px; flex-shrink: 0; cursor: pointer; }
-    .soon-info { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-    .soon-name { font-weight: 600; }
-    .soon-stock { font-size: 0.78rem; color: var(--c-muted); }
-
     /* ── Forms ── */
     form { display: flex; flex-direction: column; gap: 14px; }
     label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; font-weight: 600; }
@@ -352,7 +334,6 @@
     .section { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
     .status-line { font-size: 0.85rem; }
     .status-line.warn { color: #92400e; }
-    .soon-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 
     /* ── History ── */
     .history-stock { font-size: 0.9rem; margin-bottom: 12px; }
@@ -474,6 +455,18 @@
     .tile-value.tile-ok      { color: #15803d; font-size: 1.05rem; }
     .tile-value.tile-muted   { color: var(--c-muted); font-size: 1.05rem; }
     .tile-sub { font-size: 0.75rem; color: var(--c-muted); }
+    .alert-list { display: flex; flex-direction: column; gap: 6px; }
+    .alert-row {
+      display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+      background: #fff5f5; border: 1px solid #fecaca; border-left: 4px solid var(--c-overdue);
+      border-radius: 10px; padding: 9px 12px; font: inherit; color: inherit; cursor: pointer;
+    }
+    .alert-name { flex: 1; min-width: 0; display: flex; align-items: center; gap: 6px; font-weight: 600;
+                  font-size: 0.9rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .alert-stock { font-size: 0.75rem; color: var(--c-muted); white-space: nowrap; }
+    .alert-days { font-size: 0.8rem; color: var(--c-overdue); font-weight: 700; white-space: nowrap; }
+    .stock-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+    .stock-actions { display: flex; gap: 6px; margin-left: auto; }
     .tile-list { list-style: none; display: flex; flex-direction: column; gap: 2px; font-size: 0.75rem; }
     .tile-list li { display: flex; justify-content: space-between; gap: 4px; min-width: 0; }
     .tile-list li > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -523,7 +516,7 @@
 
 <nav>
   <button class="nav-tab active" data-view="home">ホーム</button>
-  <button class="nav-tab" data-view="soon">そろそろ</button>
+  <button class="nav-tab" data-view="stock">ストック</button>
   <button class="nav-tab" data-view="expenses">家計簿</button>
   <button class="nav-tab" data-view="settings">設定</button>
 </nav>
