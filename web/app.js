@@ -360,9 +360,6 @@ function renderAdd() {
               <input type="text" id="f-punit" placeholder="例: ml">
             </label>
           </div>
-          <label>初期消費ペース申告（日）
-            <input type="number" id="f-prior" step="1" min="1" placeholder="例: 30（月1回）">
-          </label>
           <label>単価（円・1つあたり）
             <input type="number" id="f-price" step="1" min="0" placeholder="任意">
           </label>
@@ -697,12 +694,10 @@ async function submitItem(e) {
   const emoji = document.getElementById('f-emoji').value;
   const punit = document.getElementById('f-punit').value.trim();
   const qty   = parseFloat(document.getElementById('f-qty').value);
-  const prior = parseFloat(document.getElementById('f-prior').value);
   const price = parseFloat(document.getElementById('f-price').value);
   if (emoji)         item.emoji               = emoji;
   if (punit)         item.package_unit        = punit;
   if (!isNaN(qty))   item.package_qty         = qty;
-  if (!isNaN(prior)) item.prior_interval_days = prior;
   if (!isNaN(price)) item.unit_price          = price;
   try {
     await DB.addItem(item);
@@ -752,7 +747,9 @@ function openEdit(id) {
   document.getElementById('e-unit').value  = item.stock_unit ?? '個';
   document.getElementById('e-qty').value   = item.package_qty ?? '';
   document.getElementById('e-punit').value = item.package_unit ?? '';
+  // 初期消費ペースは新規登録では聞かない。以前に入れた品目だけ、変更・削除できるように出す
   document.getElementById('e-prior').value = item.prior_interval_days ?? '';
+  document.getElementById('e-prior-label').hidden = item.prior_interval_days == null;
   document.getElementById('e-price').value = item.unit_price ?? '';
   document.getElementById('edit-dialog').showModal();
 }

@@ -566,8 +566,9 @@
             <input type="text" id="e-punit" placeholder="例: ml">
           </label>
         </div>
-        <label>初期消費ペース申告（日）
+        <label id="e-prior-label">初期消費ペース申告（日）
           <input type="number" id="e-prior" step="1" min="1">
+          <span class="hint">空欄にすると解除され、「使用開始」の記録だけで予測します。</span>
         </label>
         <label>単価（円・1つあたり）
           <input type="number" id="e-price" step="1" min="0">
