@@ -244,15 +244,16 @@ function backupBanner() {
 function renderHome() {
   const over = sortByUrgency(state.items.filter(i => i.status === 'overdue'));
   const alertHtml = over.length ? `
-    <div class="section-head"><h3>⚠ 切れている品目</h3>
+    <section class="home-alerts" aria-labelledby="home-alert-title">
+    <div class="section-head"><h2 id="home-alert-title">補充を確認する品目</h2>
       <button class="btn-ghost btn-small" onclick="showView('stock')">ストックを見る</button></div>
     <div class="alert-list">${over.map(i => `
       <button class="alert-row" onclick="showView('stock')">
         <span class="alert-name"><span class="item-emoji">${itemEmoji(i)}</span>${esc(i.name)}</span>
         <span class="alert-stock">在庫 ${stockLabel(i)}</span>
         <span class="alert-days">${shortDays(i.expectedRunout)}</span>
-      </button>`).join('')}</div>` : '';
-  return renderHomeDashboard() + backupBanner() + alertHtml;
+      </button>`).join('')}</div></section>` : '';
+  return renderHomeDashboard() + alertHtml + backupBanner() + renderQuickEntry();
 }
 
 function stockCard(item) {
@@ -321,7 +322,7 @@ function renderStock() {
         <button class="btn-ghost btn-small" onclick="showView('add')">+ 品目</button>
       </div>
     </div>
-    ${sortByUrgency(state.items).map(stockCard).join('')}`;
+    <div class="stock-grid">${sortByUrgency(state.items).map(stockCard).join('')}</div>`;
 }
 
 function emojiPickerHtml(prefix, selected = '') {
@@ -500,15 +501,26 @@ function render() {
     case 'expenses':     main.innerHTML = renderExpenses();    break;
     case 'expense-form': main.innerHTML = renderExpenseForm(); break;
   }
+  const pageTitle = {
+    home: 'ホーム',
+    stock: 'ストック',
+    add: '品目を追加',
+    expenses: '家計簿',
+    settings: '設定',
+  }[state.view];
+  if (pageTitle) main.insertAdjacentHTML('afterbegin', `<h2 class="page-title">${pageTitle}</h2>`);
   afterRenderExpenseForm();
   const tab = state.view === 'expense-form' ? 'expenses' : state.view;
-  document.querySelectorAll('.nav-tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.view === tab)
-  );
+  document.querySelectorAll('.nav-tab').forEach(t => {
+    const current = t.dataset.view === tab;
+    t.classList.toggle('active', current);
+    if (current) t.setAttribute('aria-current', 'page');
+    else t.removeAttribute('aria-current');
+  });
   // 家計簿タブでは「＋ 追加」で支出を記録する
   const inExpenses = tab === 'expenses';
   const addBtn = document.getElementById('btn-add');
-  addBtn.textContent = inExpenses ? '+ 支出' : '+ 追加';
+  addBtn.textContent = inExpenses ? '＋ 支出' : '＋ 追加';
   addBtn.hidden = state.view === 'expense-form';
 }
 
