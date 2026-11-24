@@ -237,6 +237,7 @@ function renderSummary() {
   if (soon) chips.push(`<button class="chip chip-soon" onclick="showView('soon')">🔔 そろそろ ${soon}件</button>`);
   if (!over && !soon) chips.push('<span class="chip chip-ok">✓ ぜんぶ余裕あり</span>');
   if (costs.length) chips.push(`<span class="chip chip-cost" title="単価を登録した品目の合計">💴 月あたり約${yen(monthly)}</span>`);
+  if (state.thisMonthTotal) chips.push(`<button class="chip chip-cost" onclick="showView('expenses')" title="家計簿">🧾 今月の支出 ${yen(state.thisMonthTotal)}</button>`);
   return `<div class="summary">${chips.join('')}</div>`;
 }
 
@@ -509,10 +510,19 @@ function render() {
     case 'soon':     main.innerHTML = renderSoon();     break;
     case 'add':      main.innerHTML = renderAdd();      break;
     case 'settings': main.innerHTML = renderSettings(); break;
+    case 'expenses':     main.innerHTML = renderExpenses();    break;
+    case 'expense-form': main.innerHTML = renderExpenseForm(); break;
   }
+  afterRenderExpenseForm();
+  const tab = state.view === 'expense-form' ? 'expenses' : state.view;
   document.querySelectorAll('.nav-tab').forEach(t =>
-    t.classList.toggle('active', t.dataset.view === state.view)
+    t.classList.toggle('active', t.dataset.view === tab)
   );
+  // 家計簿タブでは「＋ 追加」で支出を記録する
+  const inExpenses = tab === 'expenses';
+  const addBtn = document.getElementById('btn-add');
+  addBtn.textContent = inExpenses ? '+ 支出' : '+ 追加';
+  addBtn.hidden = state.view === 'expense-form';
 }
 
 // ── Data loading ─────────────────────────────────────────────────────────────
@@ -527,6 +537,7 @@ async function loadAll() {
   // リストから外れた品目のチェックは捨てる
   const soonIds = new Set(state.soonItems.map(i => i.id));
   state.checkedIds = new Set([...state.checkedIds].filter(id => soonIds.has(id)));
+  await loadExpenses();
   updateAppBadge();
   render();
 }
@@ -808,7 +819,7 @@ async function archiveItem() {
 
 let historyItemId = null;
 
-const SOURCE_LABELS = { list: 'リストから', import: 'インポート' };
+const SOURCE_LABELS = { list: 'リストから', import: 'インポート', expense: '家計簿から' };
 
 async function openHistory(id) {
   historyItemId = id;
@@ -906,7 +917,12 @@ async function submitHistory(e) {
 }
 
 async function deleteHistoryEvent(kind, id) {
-  if (!confirm('この記録を削除しますか？')) return;
+  const purchase = kind === 'purchase' ? await DB.getPurchase(id) : null;
+  const msg = purchase?.source === 'expense'
+    ? 'この記録を削除しますか？（家計簿の支出は残り、ストックへの反映だけ外れます）'
+    : 'この記録を削除しますか？';
+  if (!confirm(msg)) return;
+  if (purchase?.source === 'expense') await DB.detachPurchaseFromExpense(purchase);
   if (kind === 'purchase')     await DB.deletePurchase(id);
   else if (kind === 'opening') await DB.deleteOpening(id);
   else                         await DB.deleteAdjustment(id);
@@ -934,7 +950,8 @@ async function importData(e) {
   try {
     const data = JSON.parse(await file.text());
     if (!Array.isArray(data.items)) throw new Error('品目データが見つかりません');
-    if (!confirm(`品目${data.items.length}件を読み込みます。今のデータは置き換わります。よろしいですか？`)) return;
+    const nExp = (data.expenses ?? []).length;
+    if (!confirm(`品目${data.items.length}件${nExp ? `・支出${nExp}件` : ''}を読み込みます。今のデータは置き換わります。よろしいですか？`)) return;
     await DB.importAll(data);
     await loadAll();
     alert('インポートしました');
@@ -1139,11 +1156,15 @@ setupUpdates();
 window.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(location.search);
   if (params.get('view') === 'soon') state.view = 'soon';
+  if (params.get('view') === 'expenses') state.view = 'expenses';
+  if (params.get('view') === 'expense-new') { state.view = 'expenses'; state.openNewExpense = true; }
 
   document.querySelectorAll('.nav-tab').forEach(t =>
     t.addEventListener('click', () => showView(t.dataset.view))
   );
-  document.getElementById('btn-add').addEventListener('click', () => showView('add'));
+  document.getElementById('btn-add').addEventListener('click', () =>
+    state.view === 'expenses' ? newExpense() : showView('add')
+  );
   document.getElementById('edit-form').addEventListener('submit', submitEdit);
   document.getElementById('btn-archive').addEventListener('click', archiveItem);
   document.getElementById('btn-close-edit').addEventListener('click', () =>
@@ -1174,5 +1195,6 @@ window.addEventListener('DOMContentLoaded', async () => {
 
   await checkJustUpdated();
   await loadAll();
+  if (state.openNewExpense) newExpense();
   await checkAndNotify();
 });

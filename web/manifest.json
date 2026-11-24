@@ -13,7 +13,8 @@
   "categories": [
     "lifestyle",
     "productivity",
-    "shopping"
+    "shopping",
+    "finance"
   ],
   "icons": [
     {
@@ -40,6 +41,18 @@
       "name": "そろそろリスト",
       "short_name": "そろそろ",
       "url": "./?view=soon",
+      "icons": [
+        {
+          "src": "./icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    },
+    {
+      "name": "支出を記録",
+      "short_name": "支出",
+      "url": "./?view=expense-new",
       "icons": [
         {
           "src": "./icon-192.png",
