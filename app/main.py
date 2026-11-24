@@ -31,7 +31,7 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown(wait=False)
 
 
-app = FastAPI(title="Consumable Forecast", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="Consumable Forecast", version="0.6.1", lifespan=lifespan)
 app.include_router(router)
 
 WEB_DIR = Path(__file__).parent.parent / "web"
