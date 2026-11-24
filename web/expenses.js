@@ -14,6 +14,9 @@ Object.assign(state, {
   expMonth: localDate().slice(0, 7),   // 'YYYY-MM'
   expenses: [],                        // 表示中の月の支出（lines 付き）
   thisMonthTotal: 0,
+  todayTotal: 0,
+  catUsage: [],                        // よく使うカテゴリ順（かんたん記録の並び）
+  quick: { category: null },           // かんたん記録で選んだカテゴリ
   nameLinks: new Map(),                // 正規化した品名 → { item_id, stock_per_qty }
   expStores: [],                       // 過去に入力した店名
   expPayments: [],
@@ -53,11 +56,23 @@ async function loadExpenses() {
   const thisMonth = localDate().slice(0, 7);
   const current = thisMonth === state.expMonth ? state.expenses : await fetchMonth(thisMonth);
   state.thisMonthTotal = current.reduce((s, e) => s + (e.total || 0), 0);
+  const today = localDate();
+  state.todayTotal = current.filter(e => e.spent_on === today).reduce((s, e) => s + (e.total || 0), 0);
 
   const links = await DB.getNameLinks();
   state.nameLinks = new Map(links.map(l => [l.name, l]));
 
   const all = await DB.getAllExpenses();
+  // 直近90日に使ったカテゴリの回数順
+  const since = localDate(new Date(Date.now() - 90 * 86400000));
+  const recentExp = all.filter(e => e.spent_on >= since);
+  const recentLines = await DB.getLinesByExpenseIds(recentExp.filter(e => e.mode === 'lines').map(e => e.id));
+  const count = new Map();
+  for (const c of [...recentExp.filter(e => e.mode !== 'lines').map(e => e.category), ...recentLines.map(l => l.category)]) {
+    if (c) count.set(c, (count.get(c) || 0) + 1);
+  }
+  state.catUsage = [...EXPENSE_CATEGORIES].sort((a, b) =>
+    (count.get(b) || 0) - (count.get(a) || 0) || EXPENSE_CATEGORIES.indexOf(a) - EXPENSE_CATEGORIES.indexOf(b));
   const uniq = arr => [...new Set(arr.filter(Boolean))];
   const recent = all.sort((a, b) => (b.spent_on || '').localeCompare(a.spent_on || ''));
   state.expStores = uniq(recent.map(e => e.store)).slice(0, 30);
@@ -88,6 +103,141 @@ function categoryTotals(expenses) {
     }
   }
   return [...sums.entries()].filter(([, v]) => v !== 0).sort((a, b) => b[1] - a[1]);
+}
+
+// ── ホーム: 支出とストックの入口 ─────────────────────────────────────────────
+
+function renderHomeDashboard() {
+  const risky = sortByUrgency(state.items.filter(i => i.status !== 'ok'));
+  const over = risky.filter(i => i.status === 'overdue').length;
+  const costs = state.items.filter(i => i.monthlyCost != null);
+  const monthly = costs.reduce((s, i) => s + i.monthlyCost, 0);
+
+  let stockMain, stockList = '';
+  if (!state.items.length) {
+    stockMain = '<div class="tile-value tile-muted">未登録</div>';
+  } else if (risky.length) {
+    stockMain = `<div class="tile-value ${over ? 'tile-overdue' : 'tile-soon'}">⚠ 要補充 ${risky.length}件</div>`;
+    stockList = `<ul class="tile-list">${risky.slice(0, 3).map(i => `
+      <li class="${statusClass(i.status)}"><span>${itemEmoji(i)} ${esc(i.name)}</span>
+        <span class="tile-days">${shortDays(i.expectedRunout)}</span></li>`).join('')}
+      ${risky.length > 3 ? `<li class="tile-more">ほか${risky.length - 3}件</li>` : ''}</ul>`;
+  } else {
+    stockMain = '<div class="tile-value tile-ok">✓ 余裕あり</div>';
+  }
+
+  return `
+    <div class="tiles">
+      <div class="tile" role="button" tabindex="0" onclick="showView('expenses')">
+        <div class="tile-label">🧾 今月の支出</div>
+        <div class="tile-value">${yen(state.thisMonthTotal)}</div>
+        <div class="tile-sub">今日 ${yen(state.todayTotal)}</div>
+      </div>
+      <div class="tile" role="button" tabindex="0" onclick="${risky.length ? "showView('soon')" : "document.querySelector('.section-head')?.scrollIntoView({ behavior: 'smooth' })"}">
+        <div class="tile-label">📦 ストック</div>
+        ${stockMain}
+        ${stockList || `<div class="tile-sub">${state.items.length}品目${costs.length ? `・月約${yen(monthly)}` : ''}</div>`}
+      </div>
+    </div>
+    ${renderQuickEntry()}`;
+}
+
+// タイル用の短い残り日数
+function shortDays(date) {
+  if (!date) return '−';
+  const d = dayDiff(date);
+  return d < 0 ? `${-d}日超過` : d === 0 ? '今日' : `あと${d}日`;
+}
+
+function renderQuickEntry() {
+  const cats = state.catUsage.length ? state.catUsage : EXPENSE_CATEGORIES;
+  const sel = state.quick.category || cats[0];
+  return `
+    <form class="quick" onsubmit="submitQuick(event)" autocomplete="off">
+      <div class="quick-title">✏️ かんたん支出記録</div>
+      <datalist id="dl-q-names">${state.expNames.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
+      <div class="quick-row">
+        <input type="number" id="q-amount" inputmode="numeric" step="1" min="1" placeholder="金額" required>
+        <input type="text" id="q-name" list="dl-q-names" placeholder="品名（任意）" oninput="onQuickName()">
+      </div>
+      <div class="quick-cats" role="radiogroup" aria-label="カテゴリ">
+        ${cats.map(c => `<button type="button" class="qcat ${c === sel ? 'selected' : ''}"
+          onclick="pickQuickCat(this)" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+      </div>
+      <label id="q-stock" class="quick-stock" hidden>
+        <input type="checkbox" id="q-stock-on" checked> <span id="q-stock-text"></span>
+      </label>
+      <div class="quick-actions">
+        <button type="submit" class="btn-primary" id="q-save">記録</button>
+        <button type="button" class="btn-ghost" onclick="quickToForm()">詳しく入力</button>
+      </div>
+    </form>`;
+}
+
+function pickQuickCat(btn) {
+  state.quick.category = btn.dataset.cat;
+  btn.parentElement.querySelectorAll('.qcat').forEach(b => b.classList.toggle('selected', b === btn));
+}
+
+function quickLink() {
+  const name = document.getElementById('q-name')?.value.trim() || '';
+  const itemId = findItemForName(name);
+  if (itemId == null) return null;
+  return { itemId, item: state.items.find(i => i.id === itemId), stock: stockPerQty(itemId, name) };
+}
+
+function onQuickName() {
+  const link = quickLink();
+  const box = document.getElementById('q-stock');
+  box.hidden = !link;
+  if (link) {
+    document.getElementById('q-stock-text').textContent =
+      `${itemEmoji(link.item)} ${link.item.name} の在庫にも +${fmtNum(link.stock)}${link.item.stock_unit || '個'}`;
+    // ストック品目は「日用品」に寄せる
+    const chip = document.querySelector(`.qcat[data-cat="${STOCK_CATEGORY}"]`);
+    if (chip) pickQuickCat(chip);
+  }
+}
+
+async function submitQuick(e) {
+  e.preventDefault();
+  const amount = parseFloat(document.getElementById('q-amount').value);
+  if (isNaN(amount) || amount <= 0) { alert('金額を入力してください'); return; }
+  const name = document.getElementById('q-name').value.trim();
+  const category = document.querySelector('.qcat.selected')?.dataset.cat || 'その他';
+  const link = quickLink();
+  const withStock = !!link && document.getElementById('q-stock-on').checked;
+  const btn = document.getElementById('q-save');
+  btn.disabled = true;
+  try {
+    const head = { spent_on: localDate(), store: '', payment: '', memo: '', total: amount };
+    const id = name
+      ? await DB.saveExpense({ ...head, mode: 'lines', category: null }, [{
+          name, amount, qty: 1, category,
+          item_id: link ? link.itemId : null, stock_qty: withStock ? link.stock : 0,
+        }])
+      : await DB.saveExpense({ ...head, mode: 'bulk', category }, []);
+    requestPersist({ silent: true });
+    await loadAll();
+    toast(`✓ ${yen(amount)}を記録（${category}${name ? `・${name}` : ''}）${withStock ? `　📦 +${fmtNum(link.stock)}` : ''}`,
+      async () => { await DB.deleteExpense(id); await loadAll(); });
+  } catch (err) {
+    alert('記録に失敗しました: ' + err.message);
+    btn.disabled = false;
+  }
+}
+
+// かんたん記録の内容を引き継いで入力フォームへ
+function quickToForm() {
+  const amount = parseFloat(document.getElementById('q-amount').value);
+  const name = document.getElementById('q-name').value.trim();
+  const category = document.querySelector('.qcat.selected')?.dataset.cat || '食費';
+  const link = quickLink();
+  newExpense();
+  const line = { ...blankLine(category), name, amount: isNaN(amount) ? null : amount };
+  if (link) Object.assign(line, { item_id: link.itemId, stock_qty: link.stock });
+  state.expDraft.lines = [line];
+  render();
 }
 
 // ── 一覧画面 ─────────────────────────────────────────────────────────────────
@@ -546,11 +696,21 @@ function cancelExpense() {
   showView('expenses');
 }
 
-function toast(text) {
+// onUndo を渡すと「取り消す」ボタンを付ける（6秒間）
+function toast(text, onUndo) {
   document.querySelectorAll('.toast').forEach(t => t.remove());
   const el = document.createElement('div');
   el.className = 'toast';
-  el.textContent = text;
+  const span = document.createElement('span');
+  span.textContent = text;
+  el.appendChild(span);
+  if (onUndo) {
+    const b = document.createElement('button');
+    b.className = 'toast-undo';
+    b.textContent = '取り消す';
+    b.onclick = async () => { b.disabled = true; el.remove(); await onUndo(); };
+    el.appendChild(b);
+  }
   document.body.appendChild(el);
-  setTimeout(() => el.remove(), 4000);
+  setTimeout(() => el.remove(), onUndo ? 6000 : 4000);
 }
