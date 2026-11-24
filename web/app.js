@@ -92,6 +92,7 @@ async function loadItemWithEstimate(item, settings) {
 let state = {
   view: 'home',
   items: [],
+  archivedItems: [],   // 管理をやめた品目
   settings: {},
   soonItems: [],
   storagePersisted: null,
@@ -454,6 +455,7 @@ function renderSettings() {
     <hr>
     <h3>アプリについて</h3>
     <div class="section">${renderAboutSection()}</div>
+    ${renderArchivedSection()}
     <hr>
     <h3>データ管理</h3>
     <div class="data-actions">
@@ -463,6 +465,19 @@ function renderSettings() {
       </label>
       <button class="btn-danger" onclick="confirmDeleteAll()">全データ削除</button>
     </div>`;
+}
+
+function renderArchivedSection() {
+  if (!state.archivedItems.length) return '';
+  return `
+    <hr>
+    <h3>管理をやめた品目</h3>
+    <p class="hint">記録は残っています。「再開」でストックに戻せます。</p>
+    <ul class="archived-list">${state.archivedItems.map(i => `
+      <li><span class="archived-name">${itemEmoji(i)} ${esc(i.name)}</span>
+        <button class="btn-ghost btn-small" onclick="resumeItem(${i.id})">再開</button>
+        <button class="btn-danger btn-small" onclick="deleteArchivedItem(${i.id})">削除</button>
+      </li>`).join('')}</ul>`;
 }
 
 function renderNotice() {
@@ -527,6 +542,7 @@ async function loadAll() {
   state.items = await Promise.all(
     rawItems.map(item => loadItemWithEstimate(item, state.settings))
   );
+  state.archivedItems = await DB.getArchivedItems();
   state.soonItems = sortByUrgency(state.items.filter(item => item.status !== 'ok'));
   await loadExpenses();
   updateAppBadge();
@@ -548,7 +564,7 @@ function choose(title, message, options) {
     for (const o of options) {
       const b = document.createElement('button');
       b.type = 'button';
-      b.className = o.primary ? 'btn-primary' : 'btn-ghost';
+      b.className = o.primary ? 'btn-primary' : o.danger ? 'btn-danger' : 'btn-ghost';
       b.textContent = o.label;
       b.onclick = () => { result = o.value; dlg.close(); };
       box.appendChild(b);
@@ -769,17 +785,74 @@ async function submitEdit(e) {
   }
 }
 
-async function archiveItem() {
-  if (!confirm('この品目をアーカイブしますか？')) return;
-  const item = await DB.getItem(editingItemId);
+// 管理をやめる・記録を消して始め直す・完全に削除
+async function endItem() {
+  const id = editingItemId;
+  const item = await DB.getItem(id);
   if (!item) return;
+  document.getElementById('edit-dialog').close();
+  const v = await choose(`「${item.name}」をどうしますか？`, '', [
+    { value: 'stop',   label: '⏸ 管理をやめる（記録は残し、設定からいつでも再開）' },
+    { value: 'reset',  label: '🔄 記録を消して始め直す（品目は残す）' },
+    { value: 'delete', label: '🗑 品目を完全に削除', danger: true },
+    { value: null,     label: 'やめる' },
+  ]);
   try {
-    await DB.putItem({ ...item, archived: true });
-    document.getElementById('edit-dialog').close();
-    await loadAll();
+    if (v === 'stop') {
+      await DB.putItem({ ...item, archived: true });
+      await loadAll();
+      toast(`⏸ 「${item.name}」の管理をやめました（設定から再開できます）`,
+        async () => { await DB.putItem({ ...item, archived: false }); await loadAll(); });
+    } else if (v === 'reset') {
+      await resetItem(item);
+    } else if (v === 'delete') {
+      await deleteItemCompletely(item);
+    }
   } catch (e) {
     alert('失敗しました: ' + e.message);
   }
+}
+
+async function countRecords(id) {
+  const [p, o, a] = await Promise.all([
+    DB.getPurchasesByItem(id), DB.getOpeningsByItem(id), DB.getAdjustmentsByItem(id),
+  ]);
+  return p.length + o.length + a.length;
+}
+
+async function resetItem(item) {
+  const unit = item.stock_unit || '個';
+  const current = state.items.find(i => i.id === item.id)?.currentStock ?? item.initial_stock ?? 0;
+  const input = prompt(`始め直すときの在庫数（未開封の${unit}数）を入れてください`, fmtNum(Math.max(0, current)));
+  if (input === null) return;
+  const stock = parseFloat(input);
+  if (isNaN(stock) || stock < 0) { alert('0 以上の数を入れてください'); return; }
+  const n = await countRecords(item.id);
+  if (!confirm(`「${item.name}」の記録 ${n}件（買った・使用開始・数え直し）を消して、在庫 ${fmtNum(stock)}${unit} から始め直します。\n消した記録は戻せません。家計簿の支出は残ります。`)) return;
+  await DB.removeItemRecords(item.id, 'reset', stock);
+  await loadAll();
+  toast(`🔄 「${item.name}」を在庫 ${fmtNum(stock)}${unit} から始め直しました`);
+}
+
+async function deleteItemCompletely(item) {
+  const n = await countRecords(item.id);
+  if (!confirm(`「${item.name}」と記録 ${n}件を完全に削除します。\n元に戻せません。家計簿の支出は残り、品目との紐づけだけ外れます。`)) return;
+  await DB.removeItemRecords(item.id, 'delete');
+  await loadAll();
+  toast(`🗑 「${item.name}」を削除しました`);
+}
+
+async function resumeItem(id) {
+  const item = await DB.getItem(id);
+  if (!item) return;
+  await DB.putItem({ ...item, archived: false });
+  await loadAll();
+  toast(`▶ 「${item.name}」の管理を再開しました`);
+}
+
+async function deleteArchivedItem(id) {
+  const item = await DB.getItem(id);
+  if (item) await deleteItemCompletely(item);
 }
 
 // ── 履歴ダイアログ ────────────────────────────────────────────────────────────
@@ -788,10 +861,10 @@ let historyItemId = null;
 
 const SOURCE_LABELS = { list: 'リストから', import: 'インポート', expense: '家計簿から' };
 
-async function openHistory(id) {
+async function openHistory(id, type = 'purchase') {
   historyItemId = id;
   document.getElementById('h-at').value = localDateTimeInput();
-  document.getElementById('h-type').value = 'purchase';
+  document.getElementById('h-type').value = type;
   updateHistoryForm();
   await renderHistory();
   const dlg = document.getElementById('history-dialog');
@@ -1131,7 +1204,11 @@ window.addEventListener('DOMContentLoaded', async () => {
     t.addEventListener('click', () => showView(t.dataset.view))
   );
   document.getElementById('edit-form').addEventListener('submit', submitEdit);
-  document.getElementById('btn-archive').addEventListener('click', archiveItem);
+  document.getElementById('btn-archive').addEventListener('click', endItem);
+  document.getElementById('btn-recount').addEventListener('click', () => {
+    document.getElementById('edit-dialog').close();
+    openHistory(editingItemId, 'adjust');
+  });
   document.getElementById('btn-close-edit').addEventListener('click', () =>
     document.getElementById('edit-dialog').close()
   );

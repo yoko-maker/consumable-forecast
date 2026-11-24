@@ -69,6 +69,50 @@ const DB = (() => {
     return all.filter(i => !i.archived).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
   }
 
+  async function getArchivedItems() {
+    const t = await tx('items');
+    const all = await wrap(t.objectStore('items').getAll());
+    return all.filter(i => i.archived).sort((a, b) => a.name.localeCompare(b.name, 'ja'));
+  }
+
+  // 品目の記録（買った・使用開始・数え直し）を消す。
+  //   mode 'delete': 品目ごと削除。家計簿の支出は残し、品目との紐づけだけ外す
+  //   mode 'reset' : 品目は残し、記録を消して initialStock から始め直す
+  // 1つのトランザクションで行い、途中で失敗したら何も変わらない。
+  async function removeItemRecords(itemId, mode, initialStock = 0) {
+    const db = await open();
+    const stores = ['items', 'purchases', 'openings', 'adjustments', 'expense_lines', 'name_links'];
+    const t = db.transaction(stores, 'readwrite');
+    const finished = new Promise((res, rej) => {
+      t.oncomplete = () => res();
+      t.onerror = () => rej(t.error);
+      t.onabort = () => rej(t.error || new Error('中止しました'));
+    });
+    const counts = {};
+    for (const name of ['purchases', 'openings', 'adjustments']) {
+      const s = t.objectStore(name);
+      const keys = await wrap(s.index('item_id').getAllKeys(itemId));
+      keys.forEach(k => s.delete(k));
+      counts[name] = keys.length;
+    }
+    const lines = t.objectStore('expense_lines');
+    for (const l of await wrap(lines.getAll())) {
+      if (l.item_id !== itemId) continue;
+      lines.put({ ...l, purchase_id: null, stock_qty: 0, item_id: mode === 'delete' ? null : l.item_id });
+    }
+    const items = t.objectStore('items');
+    if (mode === 'delete') {
+      items.delete(itemId);
+      const links = t.objectStore('name_links');
+      for (const l of await wrap(links.getAll())) if (l.item_id === itemId) links.delete(l.name);
+    } else {
+      const item = await wrap(items.get(itemId));
+      if (item) items.put({ ...item, initial_stock: initialStock, created_at: new Date().toISOString(), archived: false });
+    }
+    await finished;
+    return counts;
+  }
+
   async function getItem(id) {
     const t = await tx('items');
     return wrap(t.objectStore('items').get(id));
@@ -335,6 +379,7 @@ const DB = (() => {
     getAdjustmentsByItem, addAdjustment, deleteAdjustment,
     getExpensesBetween, getAllExpenses, getExpense, getLinesByExpenseIds, getNameLinks,
     saveExpense, deleteExpense, detachPurchaseFromExpense, normalizeName,
+    getArchivedItems, removeItemRecords,
     getSettings, putSettings,
     exportAll, importAll,
   };
