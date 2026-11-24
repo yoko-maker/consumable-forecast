@@ -8,7 +8,6 @@ const PRECACHE = [
   './db.js',
   './forecast.js',
   './app.js',
-  './receipt.js',
   './expenses.js',
   './manifest.json',
   './icon-192.png',

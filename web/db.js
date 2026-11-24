@@ -245,11 +245,23 @@ const DB = (() => {
   }
 
   // 既存の支出の行と、そこから作った「買った」記録を消す（同じトランザクション内）
-  async function removeExpenseRecords(t, expenseId) {
+  // keepPurchases: 「買った」の記録は消さずに、支出との紐づけだけ外す（以前の明細を1件にまとめるとき）
+  async function removeExpenseRecords(t, expenseId, keepPurchases = false) {
     const lineStore = t.objectStore('expense_lines');
+    const purchases = t.objectStore('purchases');
     const lines = await wrap(lineStore.index('expense_id').getAll(expenseId));
     for (const l of lines) {
-      if (l.purchase_id != null) t.objectStore('purchases').delete(l.purchase_id);
+      if (l.purchase_id != null) {
+        if (keepPurchases) {
+          const p = await wrap(purchases.get(l.purchase_id));
+          if (p) {
+            const { expense_id: _e, expense_line_id: _l, ...rest } = p;
+            purchases.put(rest);
+          }
+        } else {
+          purchases.delete(l.purchase_id);
+        }
+      }
       lineStore.delete(l.id);
     }
   }
@@ -257,13 +269,13 @@ const DB = (() => {
   // expense: { id?, spent_on, store, payment, mode, total, category, memo }
   // lines:   [{ name, amount, qty, category, item_id, stock_qty }]
   // 紐づいた行は purchases に { source: 'expense' } で「買った」を記録し、品目の単価も更新する
-  async function saveExpense(expense, lines) {
+  async function saveExpense(expense, lines, { keepPurchases = false } = {}) {
     const db = await open();
     const t = db.transaction(EXPENSE_STORES, 'readwrite');
     const finished = done(t);
     const now = new Date().toISOString();
     const { lines: _ignore, ...head } = expense;
-    if (head.id != null) await removeExpenseRecords(t, head.id);
+    if (head.id != null) await removeExpenseRecords(t, head.id, keepPurchases);
     const record = { ...head, updated_at: now, created_at: head.created_at || now };
     if (record.id == null) delete record.id;
     const expenseId = await wrap(t.objectStore('expenses').put(record));
