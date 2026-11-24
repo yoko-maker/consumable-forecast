@@ -111,28 +111,34 @@ function renderHomeDashboard() {
   const over = state.items.filter(i => i.status === 'overdue').length;
   const soon = state.items.filter(i => i.status === 'soon').length;
 
-  let stockMain;
-  if (!state.items.length)  stockMain = '<div class="tile-value tile-muted">未登録</div>';
-  else if (over)            stockMain = `<div class="tile-value tile-overdue">⚠ 超過 ${over}件</div>`;
-  else if (soon)            stockMain = `<div class="tile-value tile-soon">🔔 そろそろ ${soon}件</div>`;
-  else                      stockMain = '<div class="tile-value tile-ok">✓ 余裕あり</div>';
+  let stockValue = '余裕あり';
+  let stockTone = 'ok';
+  if (!state.items.length) {
+    stockValue = '未登録';
+    stockTone = 'muted';
+  } else if (over) {
+    stockValue = `超過 ${over}件`;
+    stockTone = 'overdue';
+  } else if (soon) {
+    stockValue = `そろそろ ${soon}件`;
+    stockTone = 'soon';
+  }
   const stockSub = [over && soon ? `そろそろ ${soon}件` : '', state.items.length ? `全${state.items.length}品目` : '']
     .filter(Boolean).join('・');
 
   return `
     <div class="tiles">
-      <div class="tile" role="button" tabindex="0" onclick="showView('expenses')">
-        <div class="tile-label">🧾 今月の支出</div>
-        <div class="tile-value">${yen(state.thisMonthTotal)}</div>
-        <div class="tile-sub">今日 ${yen(state.todayTotal)}</div>
-      </div>
-      <div class="tile" role="button" tabindex="0" onclick="showView('stock')">
-        <div class="tile-label">📦 ストック</div>
-        ${stockMain}
-        <div class="tile-sub">${stockSub || 'タップして品目を登録'}</div>
-      </div>
-    </div>
-    ${renderQuickEntry()}`;
+      <button type="button" class="tile tile-stock" onclick="showView('stock')">
+        <span class="tile-label">ストック</span><span class="tile-arrow" aria-hidden="true">↗</span>
+        <span class="tile-value tile-${stockTone}">${stockValue}</span>
+        <span class="tile-sub">${stockSub || '品目を登録する'}</span>
+      </button>
+      <button type="button" class="tile" onclick="showView('expenses')">
+        <span class="tile-label">今月の支出</span><span class="tile-arrow" aria-hidden="true">↗</span>
+        <span class="tile-value">${yen(state.thisMonthTotal)}</span>
+        <span class="tile-sub">今日 ${yen(state.todayTotal)}</span>
+      </button>
+    </div>`;
 }
 
 // タイル用の短い残り日数
@@ -147,11 +153,11 @@ function renderQuickEntry() {
   const sel = state.quick.category || cats[0];
   return `
     <form class="quick" onsubmit="submitQuick(event)" autocomplete="off">
-      <div class="quick-title">✏️ かんたん支出記録</div>
+      <h2 class="quick-title">かんたん支出記録</h2>
       <datalist id="dl-q-names">${state.expNames.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
       <div class="quick-row">
-        <input type="number" id="q-amount" inputmode="numeric" step="1" min="1" placeholder="金額" required>
-        <input type="text" id="q-name" list="dl-q-names" placeholder="品名（任意）" oninput="onQuickName()">
+        <input type="number" id="q-amount" aria-label="金額（円）" inputmode="numeric" step="1" min="1" placeholder="金額" required>
+        <input type="text" id="q-name" aria-label="品名（任意）" list="dl-q-names" placeholder="品名（任意）" oninput="onQuickName()">
       </div>
       <div class="quick-cats" role="radiogroup" aria-label="カテゴリ">
         ${cats.map(c => `<button type="button" class="qcat ${c === sel ? 'selected' : ''}"
