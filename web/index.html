@@ -41,7 +41,12 @@
     /* ── App shell ── */
     button { font-family: inherit; }
     :focus-visible { outline: 3px solid var(--c-primary); outline-offset: 3px; }
+    /* タブの帯は画面上部に固定し、不透明にする。
+       iOS 26 のホーム画面アプリ／Safari は、画面上端（ステータスバー付近）に下のページが透ける
+       ぼかしを重ねるため、固定した帯がないとタブにモヤがかかって見える。上端に不透明な固定要素が
+       あると、ステータスバーはその色で塗られる。 */
     .app-header {
+      position: sticky; top: 0; z-index: 20;
       background: var(--c-card); border-bottom: 1px solid var(--c-border);
       padding-top: env(safe-area-inset-top);
     }
