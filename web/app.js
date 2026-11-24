@@ -226,21 +226,6 @@ function jarSvg(item) {
 
 // ── Render views ─────────────────────────────────────────────────────────────
 
-function renderSummary() {
-  const over = state.items.filter(i => i.status === 'overdue').length;
-  const soon = state.items.filter(i => i.status === 'soon').length;
-  const costs = state.items.filter(i => i.monthlyCost != null);
-  const monthly = costs.reduce((s, i) => s + i.monthlyCost, 0);
-
-  const chips = [];
-  if (over) chips.push(`<button class="chip chip-overdue" onclick="showView('soon')">⚠ 超過 ${over}件</button>`);
-  if (soon) chips.push(`<button class="chip chip-soon" onclick="showView('soon')">🔔 そろそろ ${soon}件</button>`);
-  if (!over && !soon) chips.push('<span class="chip chip-ok">✓ ぜんぶ余裕あり</span>');
-  if (costs.length) chips.push(`<span class="chip chip-cost" title="単価を登録した品目の合計">💴 月あたり約${yen(monthly)}</span>`);
-  if (state.thisMonthTotal) chips.push(`<button class="chip chip-cost" onclick="showView('expenses')" title="家計簿">🧾 今月の支出 ${yen(state.thisMonthTotal)}</button>`);
-  return `<div class="summary">${chips.join('')}</div>`;
-}
-
 function backupBanner() {
   if (!state.items.length) return '';
   const last = state.settings.last_export_date;
@@ -257,14 +242,16 @@ function backupBanner() {
 }
 
 function renderHome() {
+  const top = renderHomeDashboard() + backupBanner();
   if (!state.items.length) {
-    return `<div class="empty">
-      <img class="empty-mascot" src="./icon-192.png" alt="">
-      <p>まだ品目がありません。<br>よく使う消耗品を登録してみましょう。</p>
+    return top + `<div class="empty">
+      <p>ストック品目はまだありません。<br>よく使う消耗品を登録すると、なくなる前にお知らせします。</p>
       <button class="btn-primary" onclick="showView('add')">+ 品目を追加</button>
     </div>`;
   }
-  return renderSummary() + backupBanner() + sortByUrgency(state.items).map(item => {
+  return top + `<div class="section-head"><h3>📦 ストック</h3>
+      <button class="btn-ghost btn-small" onclick="showView('add')">+ 品目</button></div>`
+    + sortByUrgency(state.items).map(item => {
     const hasEst = !!item.expectedRunout;
     return `
     <div class="card status-${statusClass(item.status)}">
@@ -1162,9 +1149,17 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.nav-tab').forEach(t =>
     t.addEventListener('click', () => showView(t.dataset.view))
   );
-  document.getElementById('btn-add').addEventListener('click', () =>
-    state.view === 'expenses' ? newExpense() : showView('add')
-  );
+  document.getElementById('btn-add').addEventListener('click', async () => {
+    if (state.view === 'expenses') return newExpense();
+    if (state.view !== 'home') return showView('add');
+    const v = await choose('追加する', '', [
+      { value: 'expense', label: '🧾 支出を記録', primary: true },
+      { value: 'item',    label: '📦 ストック品目を追加' },
+      { value: null,      label: 'やめる' },
+    ]);
+    if (v === 'expense') newExpense();
+    else if (v === 'item') showView('add');
+  });
   document.getElementById('edit-form').addEventListener('submit', submitEdit);
   document.getElementById('btn-archive').addEventListener('click', archiveItem);
   document.getElementById('btn-close-edit').addEventListener('click', () =>
