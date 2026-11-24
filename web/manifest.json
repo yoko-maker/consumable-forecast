@@ -38,9 +38,9 @@
   ],
   "shortcuts": [
     {
-      "name": "そろそろリスト",
-      "short_name": "そろそろ",
-      "url": "./?view=soon",
+      "name": "ストック",
+      "short_name": "ストック",
+      "url": "./?view=stock",
       "icons": [
         {
           "src": "./icon-192.png",

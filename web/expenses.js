@@ -108,23 +108,16 @@ function categoryTotals(expenses) {
 // ── ホーム: 支出とストックの入口 ─────────────────────────────────────────────
 
 function renderHomeDashboard() {
-  const risky = sortByUrgency(state.items.filter(i => i.status !== 'ok'));
-  const over = risky.filter(i => i.status === 'overdue').length;
-  const costs = state.items.filter(i => i.monthlyCost != null);
-  const monthly = costs.reduce((s, i) => s + i.monthlyCost, 0);
+  const over = state.items.filter(i => i.status === 'overdue').length;
+  const soon = state.items.filter(i => i.status === 'soon').length;
 
-  let stockMain, stockList = '';
-  if (!state.items.length) {
-    stockMain = '<div class="tile-value tile-muted">未登録</div>';
-  } else if (risky.length) {
-    stockMain = `<div class="tile-value ${over ? 'tile-overdue' : 'tile-soon'}">⚠ 要補充 ${risky.length}件</div>`;
-    stockList = `<ul class="tile-list">${risky.slice(0, 3).map(i => `
-      <li class="${statusClass(i.status)}"><span>${itemEmoji(i)} ${esc(i.name)}</span>
-        <span class="tile-days">${shortDays(i.expectedRunout)}</span></li>`).join('')}
-      ${risky.length > 3 ? `<li class="tile-more">ほか${risky.length - 3}件</li>` : ''}</ul>`;
-  } else {
-    stockMain = '<div class="tile-value tile-ok">✓ 余裕あり</div>';
-  }
+  let stockMain;
+  if (!state.items.length)  stockMain = '<div class="tile-value tile-muted">未登録</div>';
+  else if (over)            stockMain = `<div class="tile-value tile-overdue">⚠ 超過 ${over}件</div>`;
+  else if (soon)            stockMain = `<div class="tile-value tile-soon">🔔 そろそろ ${soon}件</div>`;
+  else                      stockMain = '<div class="tile-value tile-ok">✓ 余裕あり</div>';
+  const stockSub = [over && soon ? `そろそろ ${soon}件` : '', state.items.length ? `全${state.items.length}品目` : '']
+    .filter(Boolean).join('・');
 
   return `
     <div class="tiles">
@@ -133,10 +126,10 @@ function renderHomeDashboard() {
         <div class="tile-value">${yen(state.thisMonthTotal)}</div>
         <div class="tile-sub">今日 ${yen(state.todayTotal)}</div>
       </div>
-      <div class="tile" role="button" tabindex="0" onclick="${risky.length ? "showView('soon')" : "document.querySelector('.section-head')?.scrollIntoView({ behavior: 'smooth' })"}">
+      <div class="tile" role="button" tabindex="0" onclick="showView('stock')">
         <div class="tile-label">📦 ストック</div>
         ${stockMain}
-        ${stockList || `<div class="tile-sub">${state.items.length}品目${costs.length ? `・月約${yen(monthly)}` : ''}</div>`}
+        <div class="tile-sub">${stockSub || 'タップして品目を登録'}</div>
       </div>
     </div>
     ${renderQuickEntry()}`;

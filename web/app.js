@@ -94,7 +94,6 @@ let state = {
   items: [],
   settings: {},
   soonItems: [],
-  checkedIds: new Set(),
   storagePersisted: null,
   update: null,        // { version, changes } 新しいバージョンが待機中
   justUpdated: null,   // 更新直後に変更点を見せるバージョン
@@ -241,17 +240,22 @@ function backupBanner() {
     <button class="btn-ghost btn-small" onclick="exportData()">保存する</button></div>`;
 }
 
+// ホーム: 支出・ストックのタイル、かんたん支出記録、切れている品目（確認用）
 function renderHome() {
-  const top = renderHomeDashboard() + backupBanner();
-  if (!state.items.length) {
-    return top + `<div class="empty">
-      <p>ストック品目はまだありません。<br>よく使う消耗品を登録すると、なくなる前にお知らせします。</p>
-      <button class="btn-primary" onclick="showView('add')">+ 品目を追加</button>
-    </div>`;
-  }
-  return top + `<div class="section-head"><h3>📦 ストック</h3>
-      <button class="btn-ghost btn-small" onclick="showView('add')">+ 品目</button></div>`
-    + sortByUrgency(state.items).map(item => {
+  const over = sortByUrgency(state.items.filter(i => i.status === 'overdue'));
+  const alertHtml = over.length ? `
+    <div class="section-head"><h3>⚠ 切れている品目</h3>
+      <button class="btn-ghost btn-small" onclick="showView('stock')">ストックを見る</button></div>
+    <div class="alert-list">${over.map(i => `
+      <button class="alert-row" onclick="showView('stock')">
+        <span class="alert-name"><span class="item-emoji">${itemEmoji(i)}</span>${esc(i.name)}</span>
+        <span class="alert-stock">在庫 ${stockLabel(i)}</span>
+        <span class="alert-days">${shortDays(i.expectedRunout)}</span>
+      </button>`).join('')}</div>` : '';
+  return renderHomeDashboard() + backupBanner() + alertHtml;
+}
+
+function stockCard(item) {
     const hasEst = !!item.expectedRunout;
     return `
     <div class="card status-${statusClass(item.status)}">
@@ -289,36 +293,35 @@ function renderHome() {
             <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></button>
       </div>
     </div>`;
-  }).join('');
 }
 
-function renderSoon() {
-  if (!state.soonItems.length) {
+// ストック: 全品目を急ぐ順に
+function renderStock() {
+  if (!state.items.length) {
     return `<div class="empty">
       <img class="empty-mascot" src="./icon-192.png" alt="">
-      <p>いま買い足すものはありません。</p>
+      <p>まだ品目がありません。<br>よく使う消耗品を登録すると、なくなる前にお知らせします。</p>
+      <button class="btn-primary" onclick="showView('add')">+ 品目を追加</button>
     </div>`;
   }
+  const over = state.items.filter(i => i.status === 'overdue').length;
+  const soon = state.items.filter(i => i.status === 'soon').length;
+  const costs = state.items.filter(i => i.monthlyCost != null);
+  const monthly = costs.reduce((s, i) => s + i.monthlyCost, 0);
+  const chips = [];
+  if (over) chips.push(`<span class="chip chip-overdue">⚠ 超過 ${over}件</span>`);
+  if (soon) chips.push(`<span class="chip chip-soon">🔔 そろそろ ${soon}件</span>`);
+  if (!over && !soon) chips.push('<span class="chip chip-ok">✓ ぜんぶ余裕あり</span>');
+  if (costs.length) chips.push(`<span class="chip chip-cost" title="単価を登録した品目の合計">💴 月あたり約${yen(monthly)}</span>`);
   return `
-    <div class="soon-head">
-      <p class="hint">チェックした品目を「買った」として記録します。</p>
-      <button class="btn-ghost btn-small" onclick="shareSoonList()">📤 共有</button>
+    <div class="stock-head">
+      <div class="summary">${chips.join('')}</div>
+      <div class="stock-actions">
+        ${over || soon ? '<button class="btn-ghost btn-small" onclick="shareSoonList()">📤 買い物リスト</button>' : ''}
+        <button class="btn-ghost btn-small" onclick="showView('add')">+ 品目</button>
+      </div>
     </div>
-    ${state.soonItems.map(item => `
-      <label class="soon-item">
-        <input type="checkbox" value="${item.id}"
-          ${state.checkedIds.has(item.id) ? 'checked' : ''}
-          onchange="toggleCheck(${item.id},this.checked)">
-        <span class="item-emoji">${itemEmoji(item)}</span>
-        <div class="soon-info">
-          <span class="soon-name">${esc(item.name)}</span>
-          <span class="soon-stock">在庫: ${stockLabel(item)}</span>
-        </div>
-        <span class="runout">${daysUntil(item.expectedRunout) ?? '−'}</span>
-      </label>`).join('')}
-    <button class="btn-primary" id="btn-submit-checked" onclick="submitChecked(this)" style="margin-top:16px">
-      チェックした品目を「買った」として記録
-    </button>`;
+    ${sortByUrgency(state.items).map(stockCard).join('')}`;
 }
 
 function emojiPickerHtml(prefix, selected = '') {
@@ -491,7 +494,7 @@ function render() {
   const main = document.getElementById('main');
   switch (state.view) {
     case 'home':     main.innerHTML = renderHome();     break;
-    case 'soon':     main.innerHTML = renderSoon();     break;
+    case 'stock':    main.innerHTML = renderStock();    break;
     case 'add':      main.innerHTML = renderAdd();      break;
     case 'settings': main.innerHTML = renderSettings(); break;
     case 'expenses':     main.innerHTML = renderExpenses();    break;
@@ -518,9 +521,6 @@ async function loadAll() {
     rawItems.map(item => loadItemWithEstimate(item, state.settings))
   );
   state.soonItems = sortByUrgency(state.items.filter(item => item.status !== 'ok'));
-  // リストから外れた品目のチェックは捨てる
-  const soonIds = new Set(state.soonItems.map(i => i.id));
-  state.checkedIds = new Set([...state.checkedIds].filter(id => soonIds.has(id)));
   await loadExpenses();
   updateAppBadge();
   render();
@@ -637,32 +637,8 @@ async function recordOpening(itemId, btn) {
 
 // ── そろそろリスト ────────────────────────────────────────────────────────────
 
-function toggleCheck(id, checked) {
-  if (checked) state.checkedIds.add(id);
-  else state.checkedIds.delete(id);
-}
-
-async function submitChecked(btn) {
-  if (!state.checkedIds.size) return;
-  if (btn) btn.disabled = true;
-  const now = new Date().toISOString();
-  try {
-    for (const id of state.checkedIds) {
-      await DB.addPurchase({ item_id: id, purchased_at: now, quantity: 1, source: 'list' });
-    }
-    state.checkedIds.clear();
-    await loadAll();
-    showView('home');
-  } catch (e) {
-    alert('記録に失敗しました: ' + e.message);
-    if (btn) btn.disabled = false;
-  }
-}
-
 async function shareSoonList() {
-  const targets = state.checkedIds.size
-    ? state.soonItems.filter(i => state.checkedIds.has(i.id))
-    : state.soonItems;
+  const targets = state.soonItems;
   const text = '🛒 買い物リスト\n' + targets
     .map(i => `・${itemEmoji(i)} ${i.name}（${daysUntil(i.expectedRunout) ?? '−'}）`)
     .join('\n');
@@ -971,7 +947,7 @@ async function requestPersist({ silent = false } = {}) {
 async function showNotification(title, body) {
   const opts = {
     body, icon: './icon-192.png', badge: './favicon-32.png',
-    tag: 'soon', data: { url: './?view=soon' },
+    tag: 'soon', data: { url: './?view=stock' },
   };
   if ('serviceWorker' in navigator) {
     const reg = await Promise.race([
@@ -1139,7 +1115,8 @@ setupUpdates();
 
 window.addEventListener('DOMContentLoaded', async () => {
   const params = new URLSearchParams(location.search);
-  if (params.get('view') === 'soon') state.view = 'soon';
+  // 'soon' は以前の「そろそろ」タブ（通知・ショートカットの古い URL）
+  if (['stock', 'soon'].includes(params.get('view'))) state.view = 'stock';
   if (params.get('view') === 'expenses') state.view = 'expenses';
   if (params.get('view') === 'expense-new') { state.view = 'expenses'; state.openNewExpense = true; }
 
