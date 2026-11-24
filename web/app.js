@@ -517,11 +517,6 @@ function render() {
     if (current) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
-  // 家計簿タブでは「＋ 追加」で支出を記録する
-  const inExpenses = tab === 'expenses';
-  const addBtn = document.getElementById('btn-add');
-  addBtn.textContent = inExpenses ? '＋ 支出' : '＋ 追加';
-  addBtn.hidden = state.view === 'expense-form';
 }
 
 // ── Data loading ─────────────────────────────────────────────────────────────
@@ -1135,17 +1130,6 @@ window.addEventListener('DOMContentLoaded', async () => {
   document.querySelectorAll('.nav-tab').forEach(t =>
     t.addEventListener('click', () => showView(t.dataset.view))
   );
-  document.getElementById('btn-add').addEventListener('click', async () => {
-    if (state.view === 'expenses') return newExpense();
-    if (state.view !== 'home') return showView('add');
-    const v = await choose('追加する', '', [
-      { value: 'expense', label: '🧾 支出を記録', primary: true },
-      { value: 'item',    label: '📦 ストック品目を追加' },
-      { value: null,      label: 'やめる' },
-    ]);
-    if (v === 'expense') newExpense();
-    else if (v === 'item') showView('add');
-  });
   document.getElementById('edit-form').addEventListener('submit', submitEdit);
   document.getElementById('btn-archive').addEventListener('click', archiveItem);
   document.getElementById('btn-close-edit').addEventListener('click', () =>
