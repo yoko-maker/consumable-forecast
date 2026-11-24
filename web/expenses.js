@@ -404,7 +404,8 @@ function renderExpenseForm() {
         </div>
         <div id="x-paste" hidden class="exp-paste">
           <p class="hint">スマホの文字認識（iPhone の「テキスト認識表示」、Android の Google レンズなど）で
-            レシートの文字をコピーして貼り付けると、「品名 金額」の行を読み取ります。</p>
+            レシートの文字をコピーして貼り付けると、品名と金額を読み取ります。品名と金額が別々の列で
+            コピーされても、上から順に組み合わせます。</p>
           <textarea id="x-paste-text" rows="6" placeholder="牛乳 198&#10;食パン ¥158&#10;トイレットペーパー 12R 398"></textarea>
           <button type="button" class="btn-primary btn-small" onclick="parsePasted()">読み取って行に追加</button>
         </div>
@@ -583,28 +584,6 @@ function addDiffLine(diff) {
 
 // ── レシート文字の貼り付け ───────────────────────────────────────────────────
 
-const RECEIPT_SKIP = /合計|小計|総計|お釣|釣銭|おつり|預り|預かり|お預|対象|税率|内税|外税|消費税|現金|クレジット|カード|ポイント|残高|領収|TEL|電話|登録番号|レジ|担当|点数|買上|お買上|ありがとう|No\.|伝票|〒/i;
-
-// 「品名 金額」の行を取り出す。値引き行（-50 / ▲50）はマイナスにする
-function parseReceiptText(text) {
-  const out = [];
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.normalize('NFKC').trim();
-    if (!line || RECEIPT_SKIP.test(line)) continue;
-    const m = line.match(/^(.*?)[\s　]*([-−▲△]?)[\s　]*[¥￥\\]?[\s　]*(\d{1,3}(?:,\d{3})+|\d+)[\s　]*円?[\s　]*(?:[※*＊軽外内非](?:税)?)?$/);
-    if (!m) continue;
-    let name = m[1].replace(/[\s　]+$/, '').replace(/[¥￥\\]$/, '').trim();
-    const amount = parseInt(m[3].replace(/,/g, ''), 10) * (m[2] ? -1 : 1);
-    if (!name || !isFinite(amount) || /^[\d\s:/.-]+$/.test(name)) continue;   // 日付・時刻だけの行
-    let qty = 1;
-    const q = name.match(/^(.*?)[\s　]*[x×X*＊][\s　]*(\d+)(?:個|点)?$/) || name.match(/^(.*?)[\s　]+(\d+)(?:個|点)$/);
-    if (q && q[1]) { name = q[1].trim(); qty = parseInt(q[2], 10) || 1; }
-    if (/値引|割引|クーポン/.test(name) && amount > 0) out.push({ name, amount: -amount, qty: 1 });
-    else out.push({ name, amount, qty });
-  }
-  return out;
-}
-
 function togglePaste() {
   const box = document.getElementById('x-paste');
   box.hidden = !box.hidden;
@@ -613,8 +592,8 @@ function togglePaste() {
 
 function parsePasted() {
   const ta = document.getElementById('x-paste-text');
-  const found = parseReceiptText(ta.value);
-  if (!found.length) { alert('「品名 金額」の行が見つかりませんでした'); return; }
+  const { lines: found, total, unpaired } = ReceiptParser.parse(ta.value);
+  if (!found.length) { alert('品名と金額が見つかりませんでした'); return; }
   // 空の行は取り除いてから足す
   document.querySelectorAll('#x-line-list .exp-line').forEach(r => {
     if (!r.querySelector('.l-name').value && !r.querySelector('.l-amount').value) r.remove();
@@ -626,8 +605,15 @@ function parsePasted() {
     if (itemId != null) line.stock_qty = f.qty * stockPerQty(itemId, f.name);
     addLine(line);
   }
+  // レシートの合計が読めたら入れておく（行の合計との差額＝税・値引きを確認できる）
+  const receipt = document.getElementById('x-receipt');
+  if (total != null && total > 0 && !receipt.value) receipt.value = total;
+  updateExpenseTotal();
   ta.value = '';
   document.getElementById('x-paste').hidden = true;
+  toast(`📋 ${found.length}品を読み取りました${total ? `（レシートの合計 ${yen(total)}）` : ''}`
+    + (unpaired ? `。品名と組にできなかった金額が${unpaired}件あります` : '')
+    + '。品名と金額を確認してください');
 }
 
 // ── 保存・削除 ───────────────────────────────────────────────────────────────
