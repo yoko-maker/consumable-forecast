@@ -1,26 +1,22 @@
-// expenses.js — 家計簿（支出の記録・集計・ストック品目への反映）
+// expenses.js — 家計簿（支出の記録・集計）
+// 支出は「日付・金額・カテゴリ（・メモ）」だけを記録する。
+// v0.6 までの「購入品ごと」の支出（mode: 'lines'）は表示・集計・削除でき、編集すると1件にまとめる。
 // app.js の state / esc / yen / localDate / loadAll / showView を使う。
 
 const EXPENSE_CATEGORIES = [
   '食費', '日用品', '外食', '飲み物・おやつ', '衣服・美容', '医療・薬',
   '交通', '趣味・娯楽', '住まい・光熱', '通信', '交際', 'その他',
 ];
-const PAYMENT_CHOICES = ['現金', 'クレジット', '電子マネー', 'QR決済', 'デビット'];
-const STOCK_CATEGORY = '日用品';   // ストック品目に紐づけた行の既定カテゴリ
 
 // ── 状態 ─────────────────────────────────────────────────────────────────────
 
 Object.assign(state, {
   expMonth: localDate().slice(0, 7),   // 'YYYY-MM'
-  expenses: [],                        // 表示中の月の支出（lines 付き）
+  expenses: [],                        // 表示中の月の支出（以前の明細は lines 付き）
   thisMonthTotal: 0,
   todayTotal: 0,
-  catUsage: [],                        // よく使うカテゴリ順（かんたん記録の並び）
+  catUsage: [],                        // よく使うカテゴリ順（選択肢の並び）
   quick: { category: null },           // かんたん記録で選んだカテゴリ
-  nameLinks: new Map(),                // 正規化した品名 → { item_id, stock_per_qty }
-  expStores: [],                       // 過去に入力した店名
-  expPayments: [],
-  expNames: [],                        // 過去に入力した品名
   expDraft: null,                      // 入力中の支出
 });
 
@@ -59,9 +55,6 @@ async function loadExpenses() {
   const today = localDate();
   state.todayTotal = current.filter(e => e.spent_on === today).reduce((s, e) => s + (e.total || 0), 0);
 
-  const links = await DB.getNameLinks();
-  state.nameLinks = new Map(links.map(l => [l.name, l]));
-
   const all = await DB.getAllExpenses();
   // 直近90日に使ったカテゴリの回数順
   const since = localDate(new Date(Date.now() - 90 * 86400000));
@@ -73,14 +66,6 @@ async function loadExpenses() {
   }
   state.catUsage = [...EXPENSE_CATEGORIES].sort((a, b) =>
     (count.get(b) || 0) - (count.get(a) || 0) || EXPENSE_CATEGORIES.indexOf(a) - EXPENSE_CATEGORIES.indexOf(b));
-  const uniq = arr => [...new Set(arr.filter(Boolean))];
-  const recent = all.sort((a, b) => (b.spent_on || '').localeCompare(a.spent_on || ''));
-  state.expStores = uniq(recent.map(e => e.store)).slice(0, 30);
-  state.expPayments = uniq([...recent.map(e => e.payment), ...PAYMENT_CHOICES]);
-  state.expNames = uniq([
-    ...state.expenses.flatMap(e => e.lines.map(l => l.name)),
-    ...state.items.map(i => i.name),
-  ]);
 }
 
 async function changeMonth(delta) {
@@ -91,7 +76,7 @@ async function changeMonth(delta) {
 
 // ── 集計 ─────────────────────────────────────────────────────────────────────
 
-// 支出をカテゴリごとの金額に分ける（個別入力は行ごと、一括は支出のカテゴリ）
+// 支出をカテゴリごとの金額に分ける（以前の明細は行ごと、それ以外は支出のカテゴリ）
 function categoryTotals(expenses) {
   const sums = new Map();
   const add = (cat, v) => sums.set(cat || 'その他', (sums.get(cat || 'その他') || 0) + v);
@@ -148,95 +133,54 @@ function shortDays(date) {
   return d < 0 ? `${-d}日超過` : d === 0 ? '今日' : `あと${d}日`;
 }
 
-function renderQuickEntry() {
+// カテゴリの選択肢（よく使う順のチップ）。onclick は pickCat(this)
+function catChips(selected) {
   const cats = state.catUsage.length ? state.catUsage : EXPENSE_CATEGORIES;
-  const sel = state.quick.category || cats[0];
+  const sel = cats.includes(selected) ? selected : cats[0];
+  return `<div class="quick-cats" role="radiogroup" aria-label="カテゴリ">
+    ${cats.map(c => `<button type="button" class="qcat ${c === sel ? 'selected' : ''}" role="radio"
+      aria-checked="${c === sel}" onclick="pickCat(this)" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
+  </div>`;
+}
+
+function pickCat(btn) {
+  btn.parentElement.querySelectorAll('.qcat').forEach(b => {
+    b.classList.toggle('selected', b === btn);
+    b.setAttribute('aria-checked', String(b === btn));
+  });
+}
+
+const selectedCat = root => root.querySelector('.qcat.selected')?.dataset.cat || 'その他';
+
+// ホームの「かんたん支出記録」: 今日の日付で、金額とカテゴリだけ
+function renderQuickEntry() {
   return `
-    <form class="quick" onsubmit="submitQuick(event)" autocomplete="off">
+    <form class="quick" id="quick-form" onsubmit="submitQuick(event)" autocomplete="off">
       <h2 class="quick-title">かんたん支出記録</h2>
-      <datalist id="dl-q-names">${state.expNames.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
-      <div class="quick-row">
-        <input type="number" id="q-amount" aria-label="金額（円）" inputmode="numeric" step="1" min="1" placeholder="金額" required>
-        <input type="text" id="q-name" aria-label="品名（任意）" list="dl-q-names" placeholder="品名（任意）" oninput="onQuickName()">
-      </div>
-      <div class="quick-cats" role="radiogroup" aria-label="カテゴリ">
-        ${cats.map(c => `<button type="button" class="qcat ${c === sel ? 'selected' : ''}"
-          onclick="pickQuickCat(this)" data-cat="${esc(c)}">${esc(c)}</button>`).join('')}
-      </div>
-      <label id="q-stock" class="quick-stock" hidden>
-        <input type="checkbox" id="q-stock-on" checked> <span id="q-stock-text"></span>
-      </label>
-      <div class="quick-actions">
-        <button type="submit" class="btn-primary" id="q-save">記録</button>
-        <button type="button" class="btn-ghost" onclick="quickToForm()">詳しく入力</button>
-      </div>
+      <input type="number" id="q-amount" aria-label="金額（円）" inputmode="numeric" step="1" min="1" placeholder="金額（円）" required>
+      ${catChips(state.quick.category)}
+      <button type="submit" class="btn-primary" id="q-save">記録</button>
     </form>`;
-}
-
-function pickQuickCat(btn) {
-  state.quick.category = btn.dataset.cat;
-  btn.parentElement.querySelectorAll('.qcat').forEach(b => b.classList.toggle('selected', b === btn));
-}
-
-function quickLink() {
-  const name = document.getElementById('q-name')?.value.trim() || '';
-  const itemId = findItemForName(name);
-  if (itemId == null) return null;
-  return { itemId, item: state.items.find(i => i.id === itemId), stock: stockPerQty(itemId, name) };
-}
-
-function onQuickName() {
-  const link = quickLink();
-  const box = document.getElementById('q-stock');
-  box.hidden = !link;
-  if (link) {
-    document.getElementById('q-stock-text').textContent =
-      `${itemEmoji(link.item)} ${link.item.name} の在庫にも +${fmtNum(link.stock)}${link.item.stock_unit || '個'}`;
-    // ストック品目は「日用品」に寄せる
-    const chip = document.querySelector(`.qcat[data-cat="${STOCK_CATEGORY}"]`);
-    if (chip) pickQuickCat(chip);
-  }
 }
 
 async function submitQuick(e) {
   e.preventDefault();
+  const form = document.getElementById('quick-form');
   const amount = parseFloat(document.getElementById('q-amount').value);
   if (isNaN(amount) || amount <= 0) { alert('金額を入力してください'); return; }
-  const name = document.getElementById('q-name').value.trim();
-  const category = document.querySelector('.qcat.selected')?.dataset.cat || 'その他';
-  const link = quickLink();
-  const withStock = !!link && document.getElementById('q-stock-on').checked;
+  const category = selectedCat(form);
+  state.quick.category = category;
   const btn = document.getElementById('q-save');
   btn.disabled = true;
   try {
-    const head = { spent_on: localDate(), store: '', payment: '', memo: '', total: amount };
-    const id = name
-      ? await DB.saveExpense({ ...head, mode: 'lines', category: null }, [{
-          name, amount, qty: 1, category,
-          item_id: link ? link.itemId : null, stock_qty: withStock ? link.stock : 0,
-        }])
-      : await DB.saveExpense({ ...head, mode: 'bulk', category }, []);
+    const id = await DB.saveExpense({ spent_on: localDate(), mode: 'bulk', category, total: amount, memo: '' }, []);
     requestPersist({ silent: true });
     await loadAll();
-    toast(`✓ ${yen(amount)}を記録（${category}${name ? `・${name}` : ''}）${withStock ? `　📦 +${fmtNum(link.stock)}` : ''}`,
-      async () => { await DB.deleteExpense(id); await loadAll(); });
+    toast(`✓ ${yen(amount)}を記録（${category}）`, async () => { await DB.deleteExpense(id); await loadAll(); });
   } catch (err) {
     alert('記録に失敗しました: ' + err.message);
     btn.disabled = false;
   }
-}
-
-// かんたん記録の内容を引き継いで入力フォームへ
-function quickToForm() {
-  const amount = parseFloat(document.getElementById('q-amount').value);
-  const name = document.getElementById('q-name').value.trim();
-  const category = document.querySelector('.qcat.selected')?.dataset.cat || '食費';
-  const link = quickLink();
-  newExpense();
-  const line = { ...blankLine(category), name, amount: isNaN(amount) ? null : amount };
-  if (link) Object.assign(line, { item_id: link.itemId, stock_qty: link.stock });
-  state.expDraft.lines = [line];
-  render();
 }
 
 // ── 一覧画面 ─────────────────────────────────────────────────────────────────
@@ -246,7 +190,6 @@ function renderExpenses() {
   const total = state.expenses.reduce((s, e) => s + (e.total || 0), 0);
   const cats = categoryTotals(state.expenses);
   const max = Math.max(1, ...cats.map(([, v]) => v));
-  const linked = state.expenses.reduce((n, e) => n + e.lines.filter(l => l.purchase_id != null).length, 0);
   const isThisMonth = state.expMonth === localDate().slice(0, 7);
 
   const head = `
@@ -259,7 +202,7 @@ function renderExpenses() {
     <div class="exp-total-card">
       <div class="exp-total-label">支出合計</div>
       <div class="exp-total">${yen(total)}</div>
-      <div class="hint">${state.expenses.length}件${linked ? `・ストックに反映 ${linked}品` : ''}</div>
+      <div class="hint">${state.expenses.length}件</div>
       ${cats.length ? `<div class="exp-cats">${cats.map(([c, v]) => `
         <div class="exp-cat">
           <span class="exp-cat-name">${esc(c)}</span>
@@ -278,19 +221,19 @@ function renderExpenses() {
     const day = e.spent_on !== lastDay
       ? `<div class="exp-day">${fmtDay(e.spent_on)}</div>` : '';
     lastDay = e.spent_on;
-    const names = e.mode === 'lines'
-      ? e.lines.map(l => esc(l.name || '（品名なし）'))
-      : [esc(e.category || 'その他') + '（一括）'];
-    const summary = names.slice(0, 3).join('、') + (names.length > 3 ? ` ほか${names.length - 3}品` : '');
-    const stockCount = e.lines.filter(l => l.purchase_id != null).length;
+    // 以前の明細つき支出は、店名（なければ「明細」）と品名を出す
+    const isLines = e.mode === 'lines' && e.lines.length;
+    const title = isLines ? (e.store || `明細 ${e.lines.length}品`) : (e.category || 'その他');
+    const names = isLines ? e.lines.map(l => l.name || '（品名なし）') : [];
+    const sub = isLines
+      ? names.slice(0, 3).join('、') + (names.length > 3 ? ` ほか${names.length - 3}品` : '')
+      : (e.memo || e.store || '');
     return `${day}
       <button class="exp-row" onclick="editExpense(${e.id})">
         <span class="exp-row-main">
-          <span class="exp-row-store">${esc(e.store || '（店名なし）')}
-            ${e.payment ? `<small>${esc(e.payment)}</small>` : ''}</span>
-          <span class="exp-row-items">${summary}</span>
+          <span class="exp-row-store">${esc(title)}</span>
+          ${sub ? `<span class="exp-row-items">${esc(sub)}</span>` : ''}
         </span>
-        ${stockCount ? `<span class="exp-stock-badge" title="ストックに反映した品数">📦${stockCount}</span>` : ''}
         <span class="exp-row-total">${yen(e.total || 0)}</span>
       </button>`;
   }).join('');
@@ -304,124 +247,48 @@ function fmtDay(ymd) {
 
 // ── 入力フォーム ─────────────────────────────────────────────────────────────
 
-function blankLine(category) {
-  return { name: '', amount: null, qty: 1, category: category || '食費', item_id: null, stock_qty: 0 };
-}
-
 function newExpense() {
   document.querySelectorAll('.toast').forEach(t => t.remove());
-  state.expDraft = {
-    spent_on: localDate(), store: '', payment: '', mode: 'lines',
-    category: '食費', total: null, memo: '', lines: [blankLine('食費')],
-  };
+  state.expDraft = { spent_on: localDate(), mode: 'bulk', category: state.quick.category, total: null, memo: '' };
   showView('expense-form');
 }
 
 async function editExpense(id) {
   const exp = await DB.getExpense(id);
   if (!exp) return;
-  if (!exp.lines.length) exp.lines = [blankLine(exp.category)];
+  if (exp.mode === 'lines' && exp.lines.length) {
+    // 以前の明細: いちばん金額の大きいカテゴリを初期値にする
+    const byCat = new Map();
+    for (const l of exp.lines) byCat.set(l.category, (byCat.get(l.category) || 0) + (l.amount || 0));
+    exp.category = [...byCat.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] || 'その他';
+  }
   state.expDraft = exp;
   showView('expense-form');
-}
-
-const catOptions = sel => EXPENSE_CATEGORIES
-  .map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('');
-
-function itemOptions(sel) {
-  return `<option value="">ストック連携なし</option>` + state.items
-    .map(i => `<option value="${i.id}" ${i.id === sel ? 'selected' : ''}>${itemEmoji(i)} ${esc(i.name)}</option>`)
-    .join('');
-}
-
-function lineHtml(l) {
-  const item = state.items.find(i => i.id === l.item_id);
-  const unit = esc(item?.stock_unit || '個');
-  return `
-    <div class="exp-line ${l.item_id != null ? 'linked' : ''}">
-      <div class="exp-line-top">
-        <input type="text" class="l-name" list="dl-exp-names" placeholder="品名" value="${esc(l.name || '')}"
-          oninput="onLineName(this)" autocomplete="off">
-        <input type="number" class="l-amount" inputmode="numeric" step="1" placeholder="金額"
-          value="${l.amount ?? ''}" oninput="updateExpenseTotal()">
-        <button type="button" class="btn-del" title="行を削除" onclick="removeLine(this)">✕</button>
-      </div>
-      <div class="exp-line-sub">
-        <label class="l-qty-wrap">×<input type="number" class="l-qty" min="1" step="1" value="${l.qty ?? 1}"
-          oninput="onLineQty(this)"></label>
-        <select class="l-cat">${catOptions(l.category)}</select>
-        <select class="l-item" onchange="onLineItem(this)">${itemOptions(l.item_id)}</select>
-        <label class="l-stock-wrap" ${l.item_id == null ? 'hidden' : ''}>在庫＋
-          <input type="number" class="l-stock" min="0" step="0.5" value="${l.stock_qty ?? 0}"
-            oninput="this.dataset.touched='1'"><span class="l-unit">${unit}</span></label>
-      </div>
-    </div>`;
 }
 
 function renderExpenseForm() {
   const d = state.expDraft;
   if (!d) { state.view = 'expenses'; return renderExpenses(); }
-  const isLines = d.mode === 'lines';
+  const legacy = d.mode === 'lines' && d.lines?.length;
+  const stocked = legacy ? d.lines.filter(l => l.purchase_id != null).length : 0;
   return `
-    <form id="exp-form" onsubmit="submitExpense(event)">
-      <datalist id="dl-exp-stores">${state.expStores.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
-      <datalist id="dl-exp-pay">${state.expPayments.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
-      <datalist id="dl-exp-names">${state.expNames.map(s => `<option value="${esc(s)}">`).join('')}</datalist>
-      <div class="row">
-        <label>日付
-          <input type="date" id="x-date" required value="${esc(d.spent_on)}" max="${localDate()}">
-        </label>
-        <label>支払方法
-          <input type="text" id="x-pay" list="dl-exp-pay" value="${esc(d.payment || '')}" placeholder="例: 現金">
-        </label>
-      </div>
-      <label>お店
-        <input type="text" id="x-store" list="dl-exp-stores" value="${esc(d.store || '')}" placeholder="例: ○○スーパー">
+    <form id="exp-form" onsubmit="submitExpense(event)" autocomplete="off">
+      <label>日付
+        <input type="date" id="x-date" required value="${esc(d.spent_on)}" max="${localDate()}">
       </label>
-
-      <div class="seg" role="tablist">
-        <button type="button" class="seg-btn ${isLines ? 'active' : ''}" onclick="setExpenseMode('lines')">購入品ごと</button>
-        <button type="button" class="seg-btn ${!isLines ? 'active' : ''}" onclick="setExpenseMode('bulk')">合計だけ</button>
-      </div>
-
-      <div id="x-bulk" ${isLines ? 'hidden' : ''} class="detail-body" style="margin-top:0">
-        <div class="row">
-          <label>金額（円） <span class="req">*</span>
-            <input type="number" id="x-total" inputmode="numeric" step="1" value="${!isLines && d.total != null ? d.total : ''}">
-          </label>
-          <label>カテゴリ
-            <select id="x-cat" class="select">${catOptions(d.category)}</select>
-          </label>
-        </div>
-      </div>
-
-      <div id="x-lines" ${!isLines ? 'hidden' : ''}>
-        <p class="hint">ストック品目を選ぶと、保存したときにその品目の「買った」も記録されます。</p>
-        <div id="x-line-list">${d.lines.map(lineHtml).join('')}</div>
-        <div class="form-actions" style="margin-top:8px">
-          <button type="button" class="btn-ghost" onclick="addLine()">＋ 行を追加</button>
-          <button type="button" class="btn-ghost" onclick="togglePaste()">📋 レシートの文字を貼り付け</button>
-        </div>
-        <div id="x-paste" hidden class="exp-paste">
-          <p class="hint">スマホの文字認識（iPhone の「テキスト認識表示」、Android の Google レンズなど）で
-            レシートの文字をコピーして貼り付けると、品名と金額を読み取ります。品名と金額が別々の列で
-            コピーされても、上から順に組み合わせます。</p>
-          <textarea id="x-paste-text" rows="6" placeholder="牛乳 198&#10;食パン ¥158&#10;トイレットペーパー 12R 398"></textarea>
-          <button type="button" class="btn-primary btn-small" onclick="parsePasted()">読み取って行に追加</button>
-        </div>
-        <div class="exp-sum">
-          <span>合計 <strong id="x-sum">¥0</strong></span>
-          <label class="exp-receipt">レシートの合計
-            <input type="number" id="x-receipt" inputmode="numeric" step="1" placeholder="任意"
-              oninput="updateExpenseTotal()" value="${isLines && d.receipt_total != null ? d.receipt_total : ''}">
-          </label>
-        </div>
-        <div id="x-diff" class="hint" hidden></div>
-      </div>
-
-      <label>メモ
-        <input type="text" id="x-memo" value="${esc(d.memo || '')}" placeholder="任意">
+      <label>金額（円）
+        <input type="number" id="x-total" inputmode="numeric" step="1" min="1" required
+          value="${d.total != null ? d.total : ''}" placeholder="例: 1200">
       </label>
+      <div class="field">
+        <span class="field-label">カテゴリ</span>
+        ${catChips(d.category)}
+      </div>
+      <label>メモ（任意）
+        <input type="text" id="x-memo" value="${esc(d.memo || '')}" placeholder="例: 〇〇スーパー">
+      </label>
+      ${legacy ? `<p class="hint legacy-note">以前に明細で記録した支出です（${d.lines.length}品${d.store ? `・${esc(d.store)}` : ''}）。
+        保存すると明細はなくなり、1件の支出にまとまります。${stocked ? 'ストックに記録した「買った」はそのまま残ります。' : ''}</p>` : ''}
       <div class="form-actions">
         <button type="submit" class="btn-primary" id="x-save">保存</button>
         <button type="button" class="btn-ghost" onclick="cancelExpense()">キャンセル</button>
@@ -430,232 +297,37 @@ function renderExpenseForm() {
     </form>`;
 }
 
-// render() 後に呼ぶ（合計の表示など）
-function afterRenderExpenseForm() {
-  if (state.view === 'expense-form') updateExpenseTotal();
-}
-
-function setExpenseMode(mode) {
-  state.expDraft = readExpenseForm();
-  state.expDraft.mode = mode;
-  // 一括 → 個別に切り替えたら、行のカテゴリを一括のカテゴリにそろえる
-  if (mode === 'lines' && state.expDraft.lines.every(l => !l.name && l.amount == null)) {
-    state.expDraft.lines = [blankLine(state.expDraft.category)];
-  }
-  render();
-}
-
-// 新しい行のカテゴリ: ストック連携していない直近の行に合わせる（連携行は「日用品」に固定されるため）
-function lastFreeCategory() {
-  const rows = [...document.querySelectorAll('#x-line-list .exp-line')].reverse();
-  const row = rows.find(r => !r.querySelector('.l-item').value);
-  return row ? row.querySelector('.l-cat').value : '食費';
-}
-
-function addLine(line) {
-  const list = document.getElementById('x-line-list');
-  list.insertAdjacentHTML('beforeend', lineHtml(line || blankLine(lastFreeCategory())));
-  if (!line) list.lastElementChild.querySelector('.l-name').focus();
-  updateExpenseTotal();
-}
-
-function removeLine(btn) {
-  const list = document.getElementById('x-line-list');
-  btn.closest('.exp-line').remove();
-  if (!list.children.length) addLine();
-  updateExpenseTotal();
-}
-
-function stockPerQty(itemId, name) {
-  const link = state.nameLinks.get(DB.normalizeName(name));
-  return link && link.item_id === itemId && link.stock_per_qty > 0 ? link.stock_per_qty : 1;
-}
-
-function setLineItem(row, itemId) {
-  const sel = row.querySelector('.l-item');
-  sel.value = itemId == null ? '' : String(itemId);
-  const wrap = row.querySelector('.l-stock-wrap');
-  const stock = row.querySelector('.l-stock');
-  row.classList.toggle('linked', itemId != null);
-  wrap.hidden = itemId == null;
-  if (itemId != null) {
-    const item = state.items.find(i => i.id === itemId);
-    row.querySelector('.l-unit').textContent = item?.stock_unit || '個';
-    const qty = parseFloat(row.querySelector('.l-qty').value) || 1;
-    stock.value = fmtNum(qty * stockPerQty(itemId, row.querySelector('.l-name').value));
-    delete stock.dataset.touched;
-    row.querySelector('.l-cat').value = STOCK_CATEGORY;
-  }
-}
-
-// 品名から、覚えた対応 → 品目名の一致 の順でストック品目を探す
-function findItemForName(name) {
-  const key = DB.normalizeName(name);
-  if (!key) return null;
-  const link = state.nameLinks.get(key);
-  if (link && state.items.some(i => i.id === link.item_id)) return link.item_id;
-  const hit = state.items.find(i => DB.normalizeName(i.name) === key);
-  return hit ? hit.id : null;
-}
-
-function onLineName(input) {
-  const row = input.closest('.exp-line');
-  const sel = row.querySelector('.l-item');
-  if (sel.dataset.manual) return;   // 手で選んだ紐づけは変えない
-  const id = findItemForName(input.value);
-  const cur = sel.value ? Number(sel.value) : null;
-  if (id !== cur) setLineItem(row, id);
-}
-
-function onLineItem(sel) {
-  sel.dataset.manual = '1';
-  setLineItem(sel.closest('.exp-line'), sel.value ? Number(sel.value) : null);
-}
-
-function onLineQty(input) {
-  const row = input.closest('.exp-line');
-  const sel = row.querySelector('.l-item');
-  const stock = row.querySelector('.l-stock');
-  if (sel.value && !stock.dataset.touched) {
-    const qty = parseFloat(input.value) || 1;
-    stock.value = fmtNum(qty * stockPerQty(Number(sel.value), row.querySelector('.l-name').value));
-  }
-}
-
-function readLines() {
-  return [...document.querySelectorAll('#x-line-list .exp-line')].map(row => {
-    const amount = parseFloat(row.querySelector('.l-amount').value);
-    const qty = parseFloat(row.querySelector('.l-qty').value);
-    const itemVal = row.querySelector('.l-item').value;
-    const stock = parseFloat(row.querySelector('.l-stock').value);
-    return {
-      name: row.querySelector('.l-name').value.trim(),
-      amount: isNaN(amount) ? null : amount,
-      qty: isNaN(qty) || qty <= 0 ? 1 : qty,
-      category: row.querySelector('.l-cat').value,
-      item_id: itemVal ? Number(itemVal) : null,
-      stock_qty: itemVal && !isNaN(stock) && stock > 0 ? stock : 0,
-    };
-  });
-}
-
-function readExpenseForm() {
-  const d = state.expDraft || {};
-  const total = parseFloat(document.getElementById('x-total')?.value);
-  const receipt = parseFloat(document.getElementById('x-receipt')?.value);
-  return {
-    ...d,
-    spent_on: document.getElementById('x-date').value,
-    payment: document.getElementById('x-pay').value.trim(),
-    store: document.getElementById('x-store').value.trim(),
-    category: document.getElementById('x-cat').value,
-    total: isNaN(total) ? null : total,
-    receipt_total: isNaN(receipt) ? null : receipt,
-    memo: document.getElementById('x-memo').value.trim(),
-    lines: readLines(),
-  };
-}
-
-function updateExpenseTotal() {
-  const sumEl = document.getElementById('x-sum');
-  if (!sumEl) return;
-  const sum = readLines().reduce((s, l) => s + (l.amount || 0), 0);
-  sumEl.textContent = yen(sum);
-  const receipt = parseFloat(document.getElementById('x-receipt').value);
-  const diffEl = document.getElementById('x-diff');
-  const diff = isNaN(receipt) ? 0 : Math.round(receipt - sum);
-  diffEl.hidden = !diff;
-  if (diff) {
-    diffEl.innerHTML = `レシートの合計と ${yen(Math.abs(diff))} ${diff > 0 ? '足りません' : '多いです'}。
-      <button type="button" class="btn-ghost btn-small" onclick="addDiffLine(${diff})">
-        差額を1行で追加（${diff > 0 ? '税など' : '値引きなど'}）</button>`;
-  }
-}
-
-function addDiffLine(diff) {
-  const lines = readLines();
-  const cat = lines.length ? lines[lines.length - 1].category : 'その他';
-  // 空の行があれば使う
-  const empty = [...document.querySelectorAll('#x-line-list .exp-line')]
-    .find(r => !r.querySelector('.l-name').value && !r.querySelector('.l-amount').value);
-  if (empty) empty.remove();
-  addLine({ ...blankLine(cat), name: diff > 0 ? '消費税など' : '値引き', amount: diff });
-}
-
-// ── レシート文字の貼り付け ───────────────────────────────────────────────────
-
-function togglePaste() {
-  const box = document.getElementById('x-paste');
-  box.hidden = !box.hidden;
-  if (!box.hidden) document.getElementById('x-paste-text').focus();
-}
-
-function parsePasted() {
-  const ta = document.getElementById('x-paste-text');
-  const { lines: found, total, unpaired } = ReceiptParser.parse(ta.value);
-  if (!found.length) { alert('品名と金額が見つかりませんでした'); return; }
-  // 空の行は取り除いてから足す
-  document.querySelectorAll('#x-line-list .exp-line').forEach(r => {
-    if (!r.querySelector('.l-name').value && !r.querySelector('.l-amount').value) r.remove();
-  });
-  const cat = lastFreeCategory();
-  for (const f of found) {
-    const itemId = findItemForName(f.name);
-    const line = { ...blankLine(itemId != null ? STOCK_CATEGORY : cat), ...f, item_id: itemId };
-    if (itemId != null) line.stock_qty = f.qty * stockPerQty(itemId, f.name);
-    addLine(line);
-  }
-  // レシートの合計が読めたら入れておく（行の合計との差額＝税・値引きを確認できる）
-  const receipt = document.getElementById('x-receipt');
-  if (total != null && total > 0 && !receipt.value) receipt.value = total;
-  updateExpenseTotal();
-  ta.value = '';
-  document.getElementById('x-paste').hidden = true;
-  toast(`📋 ${found.length}品を読み取りました${total ? `（レシートの合計 ${yen(total)}）` : ''}`
-    + (unpaired ? `。品名と組にできなかった金額が${unpaired}件あります` : '')
-    + '。品名と金額を確認してください');
-}
+// render() 後に呼ぶ（app.js から呼ばれる。今は何もしない）
+function afterRenderExpenseForm() {}
 
 // ── 保存・削除 ───────────────────────────────────────────────────────────────
 
 async function submitExpense(e) {
   e.preventDefault();
-  const d = readExpenseForm();
-  if (!d.spent_on) { alert('日付を入力してください'); return; }
-  if (d.spent_on > localDate()) { alert('未来の日付は記録できません'); return; }
-
-  let lines = [];
-  let total;
-  if (d.mode === 'bulk') {
-    if (d.total == null || d.total <= 0) { alert('金額を入力してください'); return; }
-    total = d.total;
-  } else {
-    lines = d.lines.filter(l => l.name || l.amount != null);
-    if (!lines.length) { alert('購入品を1つ以上入力してください'); return; }
-    if (lines.some(l => l.amount == null)) { alert('金額が空の行があります'); return; }
-    total = lines.reduce((s, l) => s + l.amount, 0);
-  }
+  const d = state.expDraft || {};
+  const spent_on = document.getElementById('x-date').value;
+  const total = parseFloat(document.getElementById('x-total').value);
+  if (!spent_on) { alert('日付を入力してください'); return; }
+  if (spent_on > localDate()) { alert('未来の日付は記録できません'); return; }
+  if (isNaN(total) || total <= 0) { alert('金額を入力してください'); return; }
+  const category = selectedCat(document.getElementById('exp-form'));
 
   const btn = document.getElementById('x-save');
   btn.disabled = true;
   try {
     const { lines: _l, ...head } = d;
+    // 以前の明細を1件にまとめるときも、ストックの「買った」は消さない
     await DB.saveExpense({
-      ...head,
-      total,
-      category: d.mode === 'bulk' ? d.category : null,
-      receipt_total: d.mode === 'lines' ? d.receipt_total : null,
-    }, lines);
+      ...head, spent_on, total, category, mode: 'bulk',
+      memo: document.getElementById('x-memo').value.trim(),
+      receipt_total: null,
+    }, [], { keepPurchases: true });
     requestPersist({ silent: true });
-    const stocked = lines.filter(l => l.item_id != null && l.stock_qty > 0);
+    state.quick.category = category;
     state.expDraft = null;
-    state.expMonth = d.spent_on.slice(0, 7);
+    state.expMonth = spent_on.slice(0, 7);
     state.view = 'expenses';
     await loadAll();
-    if (stocked.length) toast(`📦 ストックに反映: ${stocked.map(l => {
-      const item = state.items.find(i => i.id === l.item_id);
-      return `${item?.name ?? l.name} +${fmtNum(l.stock_qty)}`;
-    }).join('、')}`);
   } catch (err) {
     alert('保存に失敗しました: ' + err.message);
     btn.disabled = false;
@@ -667,7 +339,7 @@ async function removeExpense() {
   if (!d?.id) return;
   const linked = (d.lines || []).filter(l => l.purchase_id != null).length;
   const msg = linked
-    ? `この支出を削除します。ストックに反映した「買った」${linked}件も取り消されます。`
+    ? `この支出を削除します。この支出からストックに記録した「買った」${linked}件も取り消されます。`
     : 'この支出を削除しますか？';
   if (!confirm(msg)) return;
   await DB.deleteExpense(d.id);
