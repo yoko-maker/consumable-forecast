@@ -71,6 +71,22 @@ def test_no_openings_with_prior():
     assert result["learning"] is False
 
 
+# ── 使用開始なし・在庫0 → 事前分布があっても予測しない（すぐ枯渇超過にしない）──────
+
+def test_no_openings_zero_stock_no_forecast():
+    result = estimate([], current_stock=0, prior_interval_days=30, start=days(0))
+    assert result["expected_runout"] is None
+    assert result["notify_date"] is None
+    assert compute_status(result["notify_date"], result["expected_runout"]) == "ok"
+
+
+# ── 在庫0でも使用中（使用開始1件）なら、使用開始＋間隔で予測する ────────────────
+
+def test_zero_stock_in_use_predicts_from_opening():
+    result = estimate([days(0)], current_stock=0, prior_interval_days=10)
+    assert result["expected_runout"] == days(10)
+
+
 # ── 在庫数が多いほど枯渇日が延びる ──────────────────────────────────────────
 
 def test_stock_extends_runout():

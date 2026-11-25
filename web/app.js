@@ -827,11 +827,19 @@ async function resetItem(item) {
   if (input === null) return;
   const stock = parseFloat(input);
   if (isNaN(stock) || stock < 0) { alert('0 以上の数を入れてください'); return; }
+  // いま使っている（開封済みの）ものがあれば、使用開始を今日で記録して予測をすぐ始める
+  const inUse = await choose(`いま使っている${item.name}はありますか？`,
+    '開封して使っている途中のもの（在庫の数には入れない）があれば「ある」を選んでください。今日から使い始めたものとして予測します。', [
+      { value: 'yes', label: 'ある（使用開始を今日で記録）', primary: true },
+      { value: 'no',  label: 'ない' },
+      { value: null,  label: 'やめる' },
+    ]);
+  if (inUse === null) return;
   const n = await countRecords(item.id);
-  if (!confirm(`「${item.name}」の記録 ${n}件（買った・使用開始・数え直し）を消して、在庫 ${fmtNum(stock)}${unit} から始め直します。\n消した記録は戻せません。家計簿の支出は残ります。`)) return;
-  await DB.removeItemRecords(item.id, 'reset', stock);
+  if (!confirm(`「${item.name}」の記録 ${n}件（買った・使用開始・数え直し）を消して、在庫 ${fmtNum(stock)}${unit}${inUse === 'yes' ? '＋使用中1つ' : ''} から始め直します。\n消した記録は戻せません。家計簿の支出は残ります。`)) return;
+  await DB.removeItemRecords(item.id, 'reset', stock, { openNow: inUse === 'yes' });
   await loadAll();
-  toast(`🔄 「${item.name}」を在庫 ${fmtNum(stock)}${unit} から始め直しました`);
+  toast(`🔄 「${item.name}」を在庫 ${fmtNum(stock)}${unit}${inUse === 'yes' ? '＋使用中1つ' : ''} から始め直しました`);
 }
 
 async function deleteItemCompletely(item) {
@@ -859,7 +867,7 @@ async function deleteArchivedItem(id) {
 
 let historyItemId = null;
 
-const SOURCE_LABELS = { list: 'リストから', import: 'インポート', expense: '家計簿から' };
+const SOURCE_LABELS = { list: 'リストから', import: 'インポート', expense: '家計簿から', reset: '始め直し' };
 
 async function openHistory(id, type = 'purchase') {
   historyItemId = id;

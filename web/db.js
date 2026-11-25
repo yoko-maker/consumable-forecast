@@ -79,7 +79,8 @@ const DB = (() => {
   //   mode 'delete': 品目ごと削除。家計簿の支出は残し、品目との紐づけだけ外す
   //   mode 'reset' : 品目は残し、記録を消して initialStock から始め直す
   // 1つのトランザクションで行い、途中で失敗したら何も変わらない。
-  async function removeItemRecords(itemId, mode, initialStock = 0) {
+  // openNow: 'reset' のとき、いま使っているものがあれば使用開始を今の時刻で記録する
+  async function removeItemRecords(itemId, mode, initialStock = 0, { openNow = false } = {}) {
     const db = await open();
     const stores = ['items', 'purchases', 'openings', 'adjustments', 'expense_lines', 'name_links'];
     const t = db.transaction(stores, 'readwrite');
@@ -107,7 +108,10 @@ const DB = (() => {
       for (const l of await wrap(links.getAll())) if (l.item_id === itemId) links.delete(l.name);
     } else {
       const item = await wrap(items.get(itemId));
-      if (item) items.put({ ...item, initial_stock: initialStock, created_at: new Date().toISOString(), archived: false });
+      const now = new Date().toISOString();
+      // 使用開始は在庫を1つ減らすので、指定した未開封の数が残るように開始時の在庫を1つ多くする
+      if (item) items.put({ ...item, initial_stock: initialStock + (openNow ? 1 : 0), created_at: now, archived: false });
+      if (item && openNow) t.objectStore('openings').add({ item_id: itemId, opened_at: now, source: 'reset' });
     }
     await finished;
     return counts;
