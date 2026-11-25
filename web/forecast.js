@@ -73,7 +73,9 @@ function estimate(openings, currentStock, {
   let intervalHat, spread, last, learning;
 
   if (m === 0) {
-    if (priorIntervalDays == null) {
+    // 未開封も使用中もない（在庫0・使用開始なし）なら、なくなる日は決められないので予測しない
+    // （「記録を消して始め直す」で在庫0にした直後に、すぐ「枯渇超過」と出さないため）
+    if (priorIntervalDays == null || currentStock <= 0) {
       return { currentStock, consumptionRate: null, intervalDays: null, expectedRunout: null,
                depletionLow: null, depletionHigh: null, notifyDate: null, learning: false,
                periodStart: null };

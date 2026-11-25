@@ -88,8 +88,10 @@ def estimate(
     S = current_stock + 1 if m >= 1 else current_stock
 
     if m == 0:
-        # 使用開始記録なし → 在庫数のみ表示、予測なし（事前分布もなければ）
-        if prior_interval_days is None:
+        # 使用開始記録なし → 在庫数のみ表示、予測なし（事前分布もなければ）。
+        # 未開封も使用中もない（在庫0・使用開始なし）なら、なくなる日は決められないので予測しない
+        # （「記録を消して始め直す」で在庫0にした直後に、すぐ「枯渇超過」と出さないため）
+        if prior_interval_days is None or current_stock <= 0:
             return ForecastResult(
                 current_stock=current_stock,
                 consumption_rate=None,
